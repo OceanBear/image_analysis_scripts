@@ -1,0 +1,22 @@
+$env:Path += ";C:\Users\qxiong\.npm-global\bin"
+[Environment]::SetEnvironmentVariable("CLAUDE_CODE_GIT_BASH_PATH", "C:\Users\qxiong\AppData\Local\Programs\Git\bin\bash.exe", "User")
+$env:CLAUDE_CODE_GIT_BASH_PATH = "C:\Users\qxiong\AppData\Local\Programs\Git\bin\bash.exe"
+$env:Path += ";C:\Apps\node-v22.20.0-win-x64"
+
+
+Open PowerShell in PyCharm and run:
+
+powershellnotepad $PROFILE
+
+If it says the file doesn't exist, create it first:
+
+powershellNew-Item -Path $PROFILE -Type File -Force
+notepad $PROFILE
+
+Add these lines to the file:
+
+powershell$env:Path += ";C:\Users\qxiong\.npm-global\bin"
+$env:Path += ";C:\Apps\node-v22.20.0-win-x64"
+$env:CLAUDE_CODE_GIT_BASH_PATH = "C:\Users\qxiong\AppData\Local\Programs\Git\bin\bash.exe"
+
+Save and close.
