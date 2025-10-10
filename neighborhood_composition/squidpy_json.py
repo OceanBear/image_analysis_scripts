@@ -107,9 +107,17 @@ adata = ad.AnnData(
 adata.obsm['spatial'] = df_clean[['x', 'y']].values
 
 # Store cell type information (use labels for better visualization)
-adata.obs['cell_type'] = df_clean['cell_type_label'].astype('category')
-adata.obs['cell_type_numeric'] = df_clean['cell_type']
-adata.obs['type_confidence'] = df_clean['type_prob']
+# IMPORTANT: Use .values to avoid index mismatch issues
+# df_clean has default integer index, but adata.obs has cell_id index
+adata.obs['cell_type'] = pd.Categorical(df_clean['cell_type_label'].values)
+adata.obs['cell_type_numeric'] = df_clean['cell_type'].values
+adata.obs['type_confidence'] = df_clean['type_prob'].values
+
+# Verify no NaN values in cell_type
+print(f"\nVerifying adata.obs['cell_type']:")
+print(f"  Total cells: {len(adata.obs)}")
+print(f"  NaN values: {adata.obs['cell_type'].isna().sum()}")
+print(f"  Unique values: {adata.obs['cell_type'].unique()}")
 
 # Create color palette for cell types (ordered by category)
 cell_type_categories = sorted(df_clean['cell_type'].unique())
@@ -133,22 +141,49 @@ sq.gr.ripley(adata, cluster_key='cell_type', mode='L')
 
 # 4. Visualization
 # Plot spatial distribution with custom colors
-sq.pl.spatial_scatter(
-    adata,
-    color='cell_type',
-    size=2,
-    figsize=(10, 10),
-    palette=color_palette
-)
+# Create a simple scatter plot using matplotlib instead of sq.pl.spatial_scatter
+# since we don't have tissue image metadata
+fig, ax = plt.subplots(figsize=(10, 10))
+
+# Get coordinates
+coords = adata.obsm['spatial']
+
+# Create color mapping
+cell_type_to_color = {ct_label: CELL_TYPE_COLORS[ct_num]
+                      for ct_num, ct_label in CELL_TYPE_DICT.items()}
+
+# Plot each cell type
+for cell_type in adata.obs['cell_type'].cat.categories:
+    mask = adata.obs['cell_type'] == cell_type
+    ax.scatter(coords[mask, 0], coords[mask, 1],
+               c=cell_type_to_color[cell_type],
+               label=cell_type,
+               s=2,
+               alpha=0.8)
+
+ax.set_xlabel('X coordinate')
+ax.set_ylabel('Y coordinate')
+ax.set_title('Spatial Distribution of Cell Types')
+ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', markerscale=3)
+ax.set_aspect('equal')
+plt.tight_layout()
 
 # Plot neighborhood enrichment
-sq.pl.nhood_enrichment(adata, cluster_key='cell_type')
+fig2, ax2 = plt.subplots(figsize=(8, 8))
+sq.pl.nhood_enrichment(adata, cluster_key='cell_type', ax=ax2)
+plt.tight_layout()
 
-# Plot interaction matrix
+# Plot co-occurrence - let squidpy create its own figure
+fig3 = plt.figure(figsize=(10, 6))
 sq.pl.co_occurrence(
     adata,
-    cluster_key='cell_type',
-    figsize=(8, 8)
+    cluster_key='cell_type'
 )
+plt.tight_layout()
 
-plt.show()  # Add this to display all plots
+# Plot Ripley's statistics if computed
+fig4 = plt.figure(figsize=(10, 6))
+sq.pl.ripley(adata, cluster_key='cell_type')
+plt.tight_layout()
+
+plt.show()  # Display all plots
