@@ -9,7 +9,7 @@ Date: 2025-10-15
 """
 
 import scanpy as sc
-from cellular_neighborhoods import CellularNeighborhoodDetector
+from dbscan_cellular_neighborhoods import DBSCANCellularNeighborhoodDetector
 
 
 def find_parameters():
@@ -27,7 +27,7 @@ def find_parameters():
     print(f"Loaded {adata.n_obs} cells")
 
     # Initialize detector
-    detector = CellularNeighborhoodDetector(adata)
+    detector = DBSCANCellularNeighborhoodDetector(adata)
 
     # Build graph and aggregate neighbors (required before parameter suggestion)
     print("\nPreparing data...")

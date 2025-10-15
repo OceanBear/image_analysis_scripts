@@ -1,7 +1,7 @@
 """
 Example script demonstrating DBSCAN-based cellular neighborhood detection.
 
-This script shows three different ways to use the CellularNeighborhoodDetector:
+This script shows three different ways to use the DBSCANCellularNeighborhoodDetector:
 1. Run only DBSCAN clustering
 2. Run only K-means clustering (original method)
 3. Compare both methods side-by-side
@@ -11,7 +11,7 @@ Date: 2025-10-15
 """
 
 import scanpy as sc
-from cellular_neighborhoods import CellularNeighborhoodDetector
+from dbscan_cellular_neighborhoods import DBSCANCellularNeighborhoodDetector
 
 
 def example_dbscan_only():
@@ -33,12 +33,12 @@ def example_dbscan_only():
     adata = sc.read_h5ad(input_file)
 
     # Initialize detector
-    detector = CellularNeighborhoodDetector(adata)
+    detector = DBSCANCellularNeighborhoodDetector(adata)
 
     # Run DBSCAN pipeline
     detector.run_full_pipeline_dbscan(
         k=20,                      # Number of neighbors for graph construction
-        eps=0.5,                   # DBSCAN epsilon (neighborhood radius)
+        eps=0.1,                   # DBSCAN epsilon (neighborhood radius)
         min_samples=5,             # DBSCAN min_samples
         handle_noise='separate',   # 'separate' or 'nearest'
         celltype_key='cell_type',  # Adjust to your column name
@@ -67,8 +67,8 @@ def example_kmeans_only():
     input_file = 'tile_39520_7904.h5ad'
     adata = sc.read_h5ad(input_file)
 
-    # Initialize detector
-    detector = CellularNeighborhoodDetector(adata)
+    # Initialize detector (can use either class, both support K-means)
+    detector = DBSCANCellularNeighborhoodDetector(adata)
 
     # Run K-means pipeline (original method)
     detector.run_full_pipeline(
@@ -103,13 +103,13 @@ def example_compare_methods():
     adata = sc.read_h5ad(input_file)
 
     # Initialize detector
-    detector = CellularNeighborhoodDetector(adata)
+    detector = DBSCANCellularNeighborhoodDetector(adata)
 
     # Compare both methods
     detector.compare_methods(
         k=20,                      # Number of neighbors (shared)
         n_clusters=6,              # K-means: number of clusters
-        eps=0.5,                   # DBSCAN: epsilon
+        eps=0.1,                   # DBSCAN: epsilon
         min_samples=5,             # DBSCAN: min_samples
         celltype_key='cell_type',
         img_id_key='tile_name',
@@ -147,7 +147,7 @@ def example_manual_workflow():
     adata = sc.read_h5ad(input_file)
 
     # Initialize detector
-    detector = CellularNeighborhoodDetector(adata)
+    detector = DBSCANCellularNeighborhoodDetector(adata)
 
     # Step 1: Build KNN graph
     print("\nStep 1: Building KNN graph...")
@@ -160,7 +160,7 @@ def example_manual_workflow():
     # Step 3a: Detect CNs with DBSCAN
     print("\nStep 3a: Detecting CNs with DBSCAN...")
     detector.detect_cellular_neighborhoods_dbscan(
-        eps=0.5,
+        eps=0.1,
         min_samples=5,
         output_key='cn_dbscan'
     )
