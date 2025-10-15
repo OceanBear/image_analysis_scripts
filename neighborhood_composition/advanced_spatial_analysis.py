@@ -289,12 +289,12 @@ def identify_spatial_domains(adata, cluster_key='cell_type', resolution=0.5):
     # Run Leiden clustering on spatial graph
     sc.tl.leiden(
         adata,
-        resolution=resolution,
+        resolution=resolution,      #
         key_added='spatial_domain',
         adjacency=adata.obsp['spatial_connectivities']
     )
 
-    n_domains = len(adata.obs['spatial_domain'].unique())
+    n_domains = len(adata.obs['spatial_domain'].unique())   # change the number of domains
     print(f"  - Identified {n_domains} spatial domains")
 
     # Compute cell type composition for each domain
