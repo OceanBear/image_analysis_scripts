@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="com.obiscr.chatgpt.settings.EasyCodeState">
+    <option name="projectFiles" value="$PROJECT_DIR$/neighborhood_composition/spatial_analysis_results/cellular_neighborhoods.py;C:/ProgramData/github_repo/image_analysis_scripts/neighborhood_composition/advanced_spatial_analysis.py;C:/ProgramData/github_repo/image_analysis_scripts/neighborhood_composition/data_preparation.py;C:/ProgramData/github_repo/image_analysis_scripts/neighborhood_composition/run.py;C:/ProgramData/github_repo/image_analysis_scripts/neighborhood_composition/spatial_analysis.py;C:/ProgramData/github_repo/image_analysis_scripts/neighborhood_composition/squidpy_json.py;C:/ProgramData/github_repo/image_analysis_scripts/package-lock.json;C:/ProgramData/github_repo/image_analysis_scripts/package.json" />
+  </component>
+</project>

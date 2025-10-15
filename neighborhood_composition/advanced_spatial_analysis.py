@@ -301,7 +301,7 @@ def identify_spatial_domains(adata, cluster_key='cell_type', resolution=0.5):
     domain_composition = pd.crosstab(
         adata.obs['spatial_domain'],
         adata.obs[cluster_key],
-        normalize='index'
+        normalize='index'   # modified
     )
 
     print("\nDomain composition:")
@@ -348,7 +348,7 @@ def plot_spatial_domains(adata, figsize=(16, 6), save_path=None):
     composition = pd.crosstab(
         adata.obs['spatial_domain'],
         adata.obs['cell_type'],
-        normalize='index'
+        normalize='columns'
     )
 
     # Limit to top 20 domains by cell count if there are too many

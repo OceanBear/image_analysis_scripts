@@ -20,3 +20,9 @@ $env:Path += ";C:\Apps\node-v22.20.0-win-x64"
 $env:CLAUDE_CODE_GIT_BASH_PATH = "C:\Users\qxiong\AppData\Local\Programs\Git\bin\bash.exe"
 
 Save and close.
+
+
+@neighborhood_composition\data_preparation.py
+@neighborhood_composition\spatial_analysis.py
+@neighborhood_composition\advanced_spatial_analysis.py
+@neighborhood_composition\cellular_neighborhoods.py
