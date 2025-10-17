@@ -8,12 +8,114 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import networkx as nx
 import os
+import json
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict
 from scipy.sparse import csr_matrix
 import warnings
 
 warnings.filterwarnings('ignore')
+
+
+def load_cell_type_colors(type_info_path: str = '../type_info.json') -> Dict[str, tuple]:
+    """
+    Load cell type colors from type_info.json file.
+
+    Parameters:
+    -----------
+    type_info_path : str
+        Path to type_info.json file
+
+    Returns:
+    --------
+    color_dict : dict
+        Dictionary mapping cell type IDs to normalized RGB tuples
+    """
+    # Try multiple possible paths
+    possible_paths = [
+        type_info_path,
+        'type_info.json',
+        '../type_info.json',
+        '../../type_info.json',
+        os.path.join(os.path.dirname(__file__), '../type_info.json'),
+        'C:\\ProgramData\\github_repo\\image_analysis_scripts\\type_info.json'
+    ]
+
+    type_info = None
+    used_path = None
+
+    for path in possible_paths:
+        try:
+            with open(path, 'r') as f:
+                type_info = json.load(f)
+                used_path = path
+                break
+        except (FileNotFoundError, json.JSONDecodeError):
+            continue
+
+    if type_info is None:
+        print(f"Warning: Could not find type_info.json at any expected location")
+        return {}
+
+    print(f"  - Loaded cell type colors from: {used_path}")
+
+    # Convert RGB values from 0-255 to 0-1 for matplotlib
+    color_dict = {}
+    for type_id, (name, rgb) in type_info.items():
+        normalized_rgb = tuple(c / 255.0 for c in rgb)
+        color_dict[int(type_id)] = normalized_rgb
+
+    return color_dict
+
+
+def apply_cell_type_colors_to_adata(adata: ad.AnnData,
+                                     celltype_key: str = 'cell_type',
+                                     celltype_id_key: str = 'cell_type_id'):
+    """
+    Apply cell type colors from type_info.json to AnnData object.
+
+    Parameters:
+    -----------
+    adata : AnnData
+        AnnData object to apply colors to
+    celltype_key : str
+        Key in adata.obs containing cell type labels
+    celltype_id_key : str
+        Key in adata.obs containing cell type IDs (numeric)
+    """
+    if celltype_key not in adata.obs.columns:
+        print(f"  - Warning: '{celltype_key}' not found in adata.obs, skipping color setup")
+        return
+
+    # Load colors from JSON
+    color_dict = load_cell_type_colors()
+    if not color_dict:
+        return
+
+    # Get unique cell types in order
+    if celltype_id_key in adata.obs.columns:
+        # Use cell_type_id for ordering if available
+        cell_type_order = adata.obs[[celltype_key, celltype_id_key]].drop_duplicates()
+        cell_type_order = cell_type_order.sort_values(celltype_id_key)
+        cell_types_ordered = cell_type_order[celltype_key].tolist()
+        cell_type_ids = cell_type_order[celltype_id_key].tolist()
+    else:
+        # Fallback: use categorical order
+        cell_types_ordered = list(adata.obs[celltype_key].cat.categories)
+        cell_type_ids = list(range(len(cell_types_ordered)))
+
+    # Create color list matching cell type order
+    colors = []
+    for ct_id in cell_type_ids:
+        if ct_id in color_dict:
+            colors.append(color_dict[ct_id])
+        else:
+            # Fallback to gray if ID not found
+            colors.append((0.5, 0.5, 0.5))
+
+    # Store colors in adata
+    adata.uns[f'{celltype_key}_colors'] = colors
+    print(f"  - Applied {len(colors)} cell type colors from type_info.json")
 
 
 class SpatialContextDetector:
@@ -32,7 +134,8 @@ class SpatialContextDetector:
     antitumoral immunity at the colorectal cancer invasive front"
     """
 
-    def __init__(self, adata: ad.AnnData, cn_key: str = 'cn_celltype'):
+    def __init__(self, adata: ad.AnnData, cn_key: str = 'cn_celltype',
+                 celltype_key: str = 'cell_type', apply_colors: bool = True):
         """
         Initialize SC detector.
 
@@ -42,6 +145,10 @@ class SpatialContextDetector:
             AnnData object with spatial coordinates and CN annotations
         cn_key : str, default='cn_celltype'
             Key in adata.obs containing CN labels
+        celltype_key : str, default='cell_type'
+            Key in adata.obs containing cell type labels
+        apply_colors : bool, default=True
+            Whether to automatically apply colors from type_info.json
         """
         self.adata = adata
         self.cn_key = cn_key
@@ -53,6 +160,11 @@ class SpatialContextDetector:
         if cn_key not in adata.obs.columns:
             raise ValueError(f"CN key '{cn_key}' not found in adata.obs. "
                            f"Please run cellular neighborhood detection first.")
+
+        # Apply cell type colors from type_info.json
+        if apply_colors:
+            print("\nApplying cell type colors from type_info.json...")
+            apply_cell_type_colors_to_adata(self.adata, celltype_key=celltype_key)
 
     def build_knn_graph(
         self,
@@ -739,8 +851,8 @@ def main():
             print(f"Available columns: {adata.obs.columns.tolist()}")
             return
 
-    # Initialize detector
-    detector = SpatialContextDetector(adata, cn_key='cn_celltype')
+    # Initialize detector (colors will be automatically loaded from type_info.json)
+    detector = SpatialContextDetector(adata, cn_key='cn_celltype', celltype_key='cell_type')
 
     # Run full pipeline
     detector.run_full_pipeline(

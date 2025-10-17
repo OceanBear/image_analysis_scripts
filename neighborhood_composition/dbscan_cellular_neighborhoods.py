@@ -60,7 +60,7 @@ class DBSCANCellularNeighborhoodDetector(CellularNeighborhoodDetector):
             Key to store CN labels in adata.obs
         handle_noise : str, default='separate'
             How to handle noise points (labeled as -1 by DBSCAN):
-            - 'separate': Keep noise points as a separate cluster (label 0)
+            - 'separate': Keep noise points as a separate cluster (label 1)
             - 'nearest': Assign noise points to nearest cluster centroid
 
         Returns:
@@ -94,10 +94,10 @@ class DBSCANCellularNeighborhoodDetector(CellularNeighborhoodDetector):
 
         if n_noise > 0:
             if handle_noise == 'separate':
-                # Assign noise points to cluster 0, shift other labels up by 2
+                # Assign noise points to CN 1, shift other labels to start from 2
                 # (to match 1-based indexing like k-means)
-                cn_labels_adjusted = np.where(cn_labels == -1, 0, cn_labels + 2)
-                print(f"  - Noise points assigned to CN 0 (separate cluster)")
+                cn_labels_adjusted = np.where(cn_labels == -1, 1, cn_labels + 2)
+                print(f"  - Noise points assigned to CN 1 (separate cluster)")
             elif handle_noise == 'nearest':
                 # Compute cluster centroids
                 unique_labels = set(cn_labels)
@@ -141,7 +141,7 @@ class DBSCANCellularNeighborhoodDetector(CellularNeighborhoodDetector):
         cn_counts = pd.Series(self.cn_labels).value_counts().sort_index()
         print(f"  - CN sizes:")
         for cn, count in cn_counts.items():
-            label = "Noise" if cn == 0 and handle_noise == 'separate' else cn
+            label = f"{cn} (Noise)" if cn == 1 and n_noise > 0 and handle_noise == 'separate' else cn
             print(f"    CN {label}: {count} cells")
 
         return self

@@ -7,6 +7,22 @@ import seaborn as sns
 from pathlib import Path
 
 
+def load_and_apply_cell_type_colors(adata, celltype_key='cell_type'):
+    """Convert hex colors from h5ad to matplotlib RGB tuples."""
+    # Colors already saved by data_preparation.py in hex format
+    if f'{celltype_key}_colors' in adata.uns:
+        colors = adata.uns[f'{celltype_key}_colors']
+        # Convert hex strings to RGB tuples for matplotlib
+        if isinstance(colors[0], str):
+            adata.uns[f'{celltype_key}_colors'] = [
+                tuple(int(c.lstrip('#')[i:i+2], 16)/255.0 for i in (0, 2, 4))
+                for c in colors
+            ]
+        print(f"  - Using cell type colors from h5ad file")
+    else:
+        print("  - Warning: Colors not found in h5ad file")
+
+
 def build_spatial_graph(adata, method='radius', radius=50, n_neighbors=6, coord_type='generic'):
     """
     Build spatial neighborhood graph for cells.
@@ -376,8 +392,12 @@ def run_spatial_analysis_pipeline(adata_path, output_dir='spatial_analysis_resul
     adata = sc.read_h5ad(adata_path)
     print(f"  - Loaded {adata.n_obs} cells")
 
+    # Apply cell type colors
+    load_and_apply_cell_type_colors(adata)
+
     # Step 1: Build spatial graph
     adata = build_spatial_graph(adata, method='radius', radius=radius)
+    #adata = build_spatial_graph(adata, method='knn',n_neighbors=3)
 
     # Step 2: Neighborhood enrichment
     adata = neighborhood_enrichment_analysis(adata, n_perms=n_perms)
@@ -430,7 +450,7 @@ if __name__ == "__main__":
     adata = run_spatial_analysis_pipeline(
         adata_path=adata_path,
         output_dir='spatial_analysis_results',
-        radius=50,  # Adjust based on your tissue/magnification
+        radius=20,  # Adjust based on your tissue/magnification
         n_perms=1000
     )
 

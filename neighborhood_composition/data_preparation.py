@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import anndata as ad
 from pathlib import Path
+from tqdm import tqdm
 
 # Cell type mapping
 CELL_TYPE_DICT = {
@@ -16,14 +17,15 @@ CELL_TYPE_DICT = {
 }
 
 # Color mapping for visualization
+
 CELL_TYPE_COLORS = {
-    0: "#000000",  # Black - Undefined
-    1: "#387F39",  # Dark Green - Epithelium low
-    2: "#00FF00",  # Bright Green - Epithelium high
-    3: "#FC8D62",  # Coral/Salmon - Macrophage
-    4: "#FFD92F",  # Yellow - Lymphocyte
-    5: "#4535C1",  # Blue/Purple - Vascular
-    6: "#17BECF"  # Cyan - Fibroblast/Stroma
+    0: "#000000",  # Black (RGB: 0, 0, 0) - Undefined
+    1: "#387F39",  # Dark Green (RGB: 56, 127, 57) - Epithelium low
+    2: "#00FF00",  # Bright Green (RGB: 0, 255, 0) - Epithelium high
+    3: "#FC8D62",  # Coral/Salmon (RGB: 252, 141, 98) - Macrophage
+    4: "#FFD92F",  # Yellow (RGB: 255, 217, 47) - Lymphocyte
+    5: "#4535C1",  # Blue/Purple (RGB: 69, 53, 193) - VascularC
+    6: "#17BECF"   # Cyan (RGB: 23, 190, 207) - Fibroblast/Stroma
 }
 
 
@@ -48,6 +50,7 @@ def load_json_to_anndata(json_path, tile_name=None, image_height=None):
     """
 
     # Load JSON data
+    print(f"Loading JSON file: {json_path}")
     with open(json_path, 'r') as f:
         data = json.load(f)
 
@@ -57,6 +60,7 @@ def load_json_to_anndata(json_path, tile_name=None, image_height=None):
 
     # Extract nucleus data
     nuc_data = data['nuc']
+    print(f"Found {len(nuc_data)} cells")
 
     # Lists to store cell information
     cell_ids = []
@@ -65,8 +69,9 @@ def load_json_to_anndata(json_path, tile_name=None, image_height=None):
     cell_type_probs = []
     bboxes = []
 
-    # Parse each nucleus
-    for cell_id, cell_info in nuc_data.items():
+    # Parse each nucleus with progress bar
+    print("Parsing cell data...")
+    for cell_id, cell_info in tqdm(nuc_data.items(), desc="Processing cells", unit="cell"):
         cell_ids.append(f"{tile_name}_{cell_id}")
 
         # Centroid coordinates are stored as [x, y] in JSON
@@ -82,9 +87,13 @@ def load_json_to_anndata(json_path, tile_name=None, image_height=None):
         bboxes.append(cell_info['bbox'])
 
     # Create observations dataframe
+    print("Creating AnnData object...")
+    # Ensure categorical order matches cell_type_id order
+    cell_type_categories = [CELL_TYPE_DICT[i] for i in sorted(CELL_TYPE_DICT.keys())]
+
     obs_df = pd.DataFrame({
         'cell_id': cell_ids,
-        'cell_type': pd.Categorical(cell_types),
+        'cell_type': pd.Categorical(cell_types, categories=cell_type_categories, ordered=True),
         'cell_type_id': [list(CELL_TYPE_DICT.keys())[list(CELL_TYPE_DICT.values()).index(ct)]
                          for ct in cell_types],
         'cell_type_prob': cell_type_probs,
@@ -169,7 +178,7 @@ def combine_multiple_tiles(json_paths, tile_positions=None):
 
     adatas = []
 
-    for i, json_path in enumerate(json_paths):
+    for i, json_path in tqdm(enumerate(json_paths), total=len(json_paths), desc="Processing tiles"):
         tile_name = Path(json_path).stem
         adata_tile = load_json_to_anndata(json_path, tile_name=tile_name)
 
@@ -195,7 +204,9 @@ def combine_multiple_tiles(json_paths, tile_positions=None):
 # Example usage
 if __name__ == "__main__":
     # Single tile analysis
-    json_path = '/mnt/g/GDC-TCGA-LUAD/00a0b174-1eab-446a-ba8c-7c6e3acd7f0c/pred_00a0b174-1eab-446a-ba8c-7c6e3acd7f0c/json/tile_39520_7904.json'
+    #json_path = '/mnt/g/GDC-TCGA-LUAD/00a0b174-1eab-446a-ba8c-7c6e3acd7f0c/pred_00a0b174-1eab-446a-ba8c-7c6e3acd7f0c/json/tile_39520_7904.json'
+    json_path = '/mnt/g/GDC-TCGA-LUAD/00a0b174-1eab-446a-ba8c-7c6e3acd7f0c/TCGA-MN-A4N4-01Z-00-DX2.9550732D-8FB1-43D9-B094-7C0CD310E9C0.json'
+
     adata = load_json_to_anndata(json_path)
 
     # Save to h5ad format for later use
