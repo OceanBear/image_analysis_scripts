@@ -471,7 +471,8 @@ def compute_nearest_neighbor_distances(adata, cluster_key='cell_type'):
 
 # Main advanced analysis pipeline
 def run_advanced_spatial_analysis(adata_path, output_dir='advanced_spatial_analysis',
-                                  max_ripley_dist=200, local_density_radius=100):
+                                  max_ripley_dist=200, local_density_radius=100,
+                                  save_adata=False):
     """
     Run advanced spatial analysis pipeline.
 
@@ -485,6 +486,8 @@ def run_advanced_spatial_analysis(adata_path, output_dir='advanced_spatial_analy
         Maximum distance for Ripley's statistics
     local_density_radius : float, default=100
         Radius for local density computation
+    save_adata : bool, default=False
+        Whether to save the processed AnnData object with analysis results
 
     Returns:
     --------
@@ -535,10 +538,13 @@ def run_advanced_spatial_analysis(adata_path, output_dir='advanced_spatial_analy
     nn_df.to_csv(output_dir / 'nearest_neighbor_stats.csv')
     print(f"\n  - Saved NN stats to: {output_dir / 'nearest_neighbor_stats.csv'}")
 
-    # Save processed data
-    output_adata_path = output_dir / 'adata_with_advanced_analysis.h5ad'
-    adata.write(output_adata_path)
-    print(f"  - Saved processed AnnData to: {output_adata_path}")
+    # Save processed data (optional)
+    if save_adata:
+        output_adata_path = output_dir / 'adata_with_advanced_analysis.h5ad'
+        adata.write(output_adata_path)
+        print(f"  - Saved processed AnnData to: {output_adata_path}")
+    else:
+        print(f"  - AnnData not saved (set save_adata=True to save)")
 
     print("\n" + "=" * 60)
     print("ADVANCED ANALYSIS COMPLETE!")
@@ -556,9 +562,10 @@ if __name__ == "__main__":
         adata_path=adata_path,
         output_dir='advanced_spatial_analysis',
         max_ripley_dist=200,
-        local_density_radius=100
+        local_density_radius=100,
+        save_adata=False  # Set to True to save the h5ad file
     )
 
     print("\nYou can now explore the advanced results:")
     print("  - Check 'advanced_spatial_analysis/' folder for figures")
-    print("  - Load 'adata_with_advanced_analysis.h5ad' for further exploration")
+    print("  - Set save_adata=True if you want to save 'adata_with_advanced_analysis.h5ad'")

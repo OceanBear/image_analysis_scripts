@@ -14,7 +14,7 @@ import scanpy as sc
 from dbscan_cellular_neighborhoods import DBSCANCellularNeighborhoodDetector
 
 
-def example_dbscan_only():
+def example_dbscan_only(save_adata=False):
     """
     Example 1: Run DBSCAN clustering only.
 
@@ -23,6 +23,11 @@ def example_dbscan_only():
            Typical range: 0.3 - 1.0 for normalized data
     - min_samples: Minimum points to form a cluster. Larger = denser clusters
                    Typical range: 3 - 10
+
+    Parameters:
+    -----------
+    save_adata : bool, default=False
+        Whether to save the h5ad file with results
     """
     print("\n" + "=" * 80)
     print("EXAMPLE 1: DBSCAN CLUSTERING ONLY")
@@ -46,18 +51,28 @@ def example_dbscan_only():
         output_dir='cn_results_dbscan'
     )
 
-    # Save results
-    adata.write('cn_results_dbscan/adata_with_dbscan_cns.h5ad')
+    # Save results (optional)
+    if save_adata:
+        adata.write('cn_results_dbscan/adata_with_dbscan_cns.h5ad')
+        print("\n  - Saved processed AnnData to: cn_results_dbscan/adata_with_dbscan_cns.h5ad")
+    else:
+        print("\n  - AnnData not saved (set save_adata=True to save)")
+
     print("\nDBSCAN analysis complete!")
 
 
-def example_kmeans_only():
+def example_kmeans_only(save_adata=False):
     """
     Example 2: Run K-means clustering only (original method).
 
     K-means parameters guide:
     - n_clusters: Number of cellular neighborhoods to detect
                   You need to specify this beforehand
+
+    Parameters:
+    -----------
+    save_adata : bool, default=False
+        Whether to save the h5ad file with results
     """
     print("\n" + "=" * 80)
     print("EXAMPLE 2: K-MEANS CLUSTERING ONLY")
@@ -80,12 +95,17 @@ def example_kmeans_only():
         random_state=220705
     )
 
-    # Save results
-    adata.write('cn_results_kmeans/adata_with_kmeans_cns.h5ad')
+    # Save results (optional)
+    if save_adata:
+        adata.write('cn_results_kmeans/adata_with_kmeans_cns.h5ad')
+        print("\n  - Saved processed AnnData to: cn_results_kmeans/adata_with_kmeans_cns.h5ad")
+    else:
+        print("\n  - AnnData not saved (set save_adata=True to save)")
+
     print("\nK-means analysis complete!")
 
 
-def example_compare_methods():
+def example_compare_methods(save_adata=False):
     """
     Example 3: Compare K-means and DBSCAN side-by-side.
 
@@ -93,6 +113,11 @@ def example_compare_methods():
     - Evaluating which method works better for your data
     - Understanding differences between methods
     - Parameter tuning
+
+    Parameters:
+    -----------
+    save_adata : bool, default=False
+        Whether to save the h5ad file with results
     """
     print("\n" + "=" * 80)
     print("EXAMPLE 3: COMPARE K-MEANS vs DBSCAN")
@@ -117,21 +142,31 @@ def example_compare_methods():
         random_state=220705
     )
 
-    # Save results with both methods
-    adata.write('cn_comparison/adata_with_both_methods.h5ad')
-    print("\nComparison complete!")
-
     # The adata now contains both:
     # - adata.obs['cn_celltype_kmeans']: K-means labels
     # - adata.obs['cn_celltype_dbscan']: DBSCAN labels
 
+    # Save results (optional)
+    if save_adata:
+        adata.write('cn_comparison/adata_with_both_methods.h5ad')
+        print("\n  - Saved processed AnnData to: cn_comparison/adata_with_both_methods.h5ad")
+    else:
+        print("\n  - AnnData not saved (set save_adata=True to save)")
 
-def example_manual_workflow():
+    print("\nComparison complete!")
+
+
+def example_manual_workflow(save_adata=False):
     """
     Example 4: Manual step-by-step workflow for more control.
 
     This gives you full control over each step and allows
     you to customize parameters or add custom analysis.
+
+    Parameters:
+    -----------
+    save_adata : bool, default=False
+        Whether to save the h5ad file with results
     """
     import os
 
@@ -188,9 +223,15 @@ def example_manual_workflow():
     print("\nDBSCAN CN Composition:")
     print(composition_dbscan)
 
-    # Save results
-    adata.write('manual_workflow/adata_manual.h5ad')
+    # Save CSV results
     composition_dbscan.to_csv('manual_workflow/composition_dbscan.csv')
+
+    # Save h5ad results (optional)
+    if save_adata:
+        adata.write('manual_workflow/adata_manual.h5ad')
+        print("\n  - Saved processed AnnData to: manual_workflow/adata_manual.h5ad")
+    else:
+        print("\n  - AnnData not saved (set save_adata=True to save)")
 
     print("\nManual workflow complete!")
 
@@ -240,14 +281,17 @@ def main():
     """
     Main function to run examples.
     Uncomment the example you want to run.
+
+    Note: Set save_adata=True to save h5ad files with results.
     """
 
     # Uncomment the example you want to run:
-
-    example_dbscan_only()
-    example_kmeans_only()
-    example_compare_methods()
-    example_manual_workflow()
+    
+    SAVE_ADATA_ORNOT = False
+    example_dbscan_only(save_adata=SAVE_ADATA_ORNOT)       # Set to True to save h5ad
+    example_kmeans_only(save_adata=SAVE_ADATA_ORNOT)       # Set to True to save h5ad
+    example_compare_methods(save_adata=SAVE_ADATA_ORNOT)   # Set to True to save h5ad
+    example_manual_workflow(save_adata=SAVE_ADATA_ORNOT)   # Set to True to save h5ad
     parameter_tuning_guide()
 
     # print("\n" + "=" * 80)

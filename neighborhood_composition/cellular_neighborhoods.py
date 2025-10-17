@@ -400,7 +400,8 @@ class CellularNeighborhoodDetector:
             celltype_key: str = 'celltype',
             img_id_key: str = 'sample_id',
             output_dir: str = 'cn_results',
-            random_state: int = 220705
+            random_state: int = 220705,
+            save_adata: bool = False
     ):
         """
         Run the complete CN detection pipeline.
@@ -419,6 +420,8 @@ class CellularNeighborhoodDetector:
             Directory to save results
         random_state : int
             Random seed
+        save_adata : bool, default=False
+            Whether to save the processed AnnData object with CN annotations
         """
         import os
         os.makedirs(output_dir, exist_ok=True)
@@ -459,6 +462,16 @@ class CellularNeighborhoodDetector:
         composition.to_csv(f'{output_dir}/cn_composition.csv')
         composition_zscore.to_csv(f'{output_dir}/cn_composition_zscore.csv')
 
+        # Save processed data (optional)
+        if save_adata:
+            input_basename = Path(output_dir).stem if hasattr(output_dir, 'stem') else 'data'
+            output_filename = f'{input_basename}_adata_cns.h5ad'
+            output_path = os.path.join(output_dir, output_filename)
+            self.adata.write(output_path)
+            print(f"\n  - Saved processed AnnData to: {output_path}")
+        else:
+            print(f"\n  - AnnData not saved (set save_adata=True to save)")
+
         print("\n" + "=" * 60)
         print("PIPELINE COMPLETE!")
         print("=" * 60)
@@ -490,19 +503,13 @@ def main():
         celltype_key='cell_type',  # Adjust to your column name
         img_id_key='tile_name',  # Adjust to your column name
         output_dir=output_dir,
-        random_state=220705
+        random_state=220705,
+        save_adata=False  # Set to True to save the h5ad file
     )
 
-    # Save annotated data with matching name
-
-
-    # Extract base name from input file
-    input_basename = Path(input_file).stem  # e.g., 'tile_39520_7904'
-    output_filename = f'{input_basename}_adata_cns.h5ad'
-    output_path = os.path.join(output_dir, output_filename)
-
-    adata.write(output_path)
-    print(f"\nAnnotated data saved to: {output_path}")
+    print("\nYou can now explore the results:")
+    print("  - Check 'cellular_neighborhoods/' folder for figures")
+    print("  - Set save_adata=True if you want to save the h5ad file with CN annotations")
 
 
 if __name__ == '__main__':

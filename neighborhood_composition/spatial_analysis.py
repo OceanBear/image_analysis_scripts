@@ -144,8 +144,8 @@ def compute_co_occurrence(adata, cluster_key='cell_type', n_splits=20):
     sq.gr.co_occurrence(
         adata,
         cluster_key=cluster_key,
-        spatial_key='spatial',
-        n_splits=n_splits
+        spatial_key='spatial',  # Modify to knn for large files
+        n_splits=n_splits,
     )
 
     print(f"  - Co-occurrence analysis complete!")
@@ -358,7 +358,8 @@ def summarize_interactions(adata, cluster_key='cell_type', threshold=2.0):
 
 # Main analysis pipeline
 def run_spatial_analysis_pipeline(adata_path, output_dir='spatial_analysis_results',
-                                  radius=50, n_perms=1000):
+                                  radius=50, n_perms=1000, save_adata=False,
+                                  skip_cooccurrence=False, max_cells_for_cooccurrence=50000):
     """
     Run complete spatial analysis pipeline.
 
@@ -372,6 +373,13 @@ def run_spatial_analysis_pipeline(adata_path, output_dir='spatial_analysis_resul
         Radius for spatial graph
     n_perms : int, default=1000
         Number of permutations for enrichment
+    save_adata : bool, default=False
+        Whether to save the processed AnnData object with analysis results
+    skip_cooccurrence : bool, default=False
+        Whether to skip co-occurrence analysis (useful for large datasets)
+    max_cells_for_cooccurrence : int, default=50000
+        Maximum number of cells for co-occurrence analysis.
+        If dataset is larger, co-occurrence will be automatically skipped.
 
     Returns:
     --------
@@ -395,15 +403,24 @@ def run_spatial_analysis_pipeline(adata_path, output_dir='spatial_analysis_resul
     # Apply cell type colors
     load_and_apply_cell_type_colors(adata)
 
-    # Step 1: Build spatial graph
+    # Step 1: Build spatial graph (Choose radius or knn)
     adata = build_spatial_graph(adata, method='radius', radius=radius)
-    #adata = build_spatial_graph(adata, method='knn',n_neighbors=3)
+    #adata = build_spatial_graph(adata, method='knn',n_neighbors=6)
 
     # Step 2: Neighborhood enrichment
     adata = neighborhood_enrichment_analysis(adata, n_perms=n_perms)
 
-    # Step 3: Co-occurrence analysis
-    adata = compute_co_occurrence(adata)
+    # Step 3: Co-occurrence analysis (skip for large datasets to avoid memory issues)
+    if not skip_cooccurrence:
+        if adata.n_obs > max_cells_for_cooccurrence:
+            print(f"\n⚠️  Skipping co-occurrence analysis:")
+            print(f"   Dataset has {adata.n_obs} cells (> {max_cells_for_cooccurrence} threshold)")
+            print(f"   Co-occurrence requires ~{(adata.n_obs**2 * 4 / 1e9):.1f} GB of RAM")
+            print(f"   Set skip_cooccurrence=False and increase max_cells_for_cooccurrence to force run")
+        else:
+            adata = compute_co_occurrence(adata)
+    else:
+        print("\nSkipping co-occurrence analysis (skip_cooccurrence=True)")
 
     # Step 4: Centrality scores
     adata = compute_centrality_scores(adata)
@@ -430,10 +447,13 @@ def run_spatial_analysis_pipeline(adata_path, output_dir='spatial_analysis_resul
     interactions_df.to_csv(output_dir / 'significant_interactions.csv', index=False)
     print(f"\n  - Saved interactions to: {output_dir / 'significant_interactions.csv'}")
 
-    # Save processed data
-    output_adata_path = output_dir / 'adata_with_spatial_analysis.h5ad'
-    adata.write(output_adata_path)
-    print(f"\n  - Saved processed AnnData to: {output_adata_path}")
+    # Save processed data (optional)
+    if save_adata:
+        output_adata_path = output_dir / 'adata_with_spatial_analysis.h5ad'
+        adata.write(output_adata_path)
+        print(f"\n  - Saved processed AnnData to: {output_adata_path}")
+    else:
+        print(f"\n  - AnnData not saved (set save_adata=True to save)")
 
     print("\n" + "=" * 60)
     print("ANALYSIS COMPLETE!")
@@ -446,14 +466,18 @@ def run_spatial_analysis_pipeline(adata_path, output_dir='spatial_analysis_resul
 if __name__ == "__main__":
     # Run pipeline on your data
     adata_path = 'tile_39520_7904.h5ad'
+    #adata_path = 'TCGA-MN-A4N4-01Z-00-DX2.9550732D-8FB1-43D9-B094-7C0CD310E9C0.h5ad'
 
     adata = run_spatial_analysis_pipeline(
         adata_path=adata_path,
         output_dir='spatial_analysis_results',
         radius=20,  # Adjust based on your tissue/magnification
-        n_perms=1000
+        n_perms=1000,
+        save_adata=False,  # Set to True to save the h5ad file
+        skip_cooccurrence=False,  # Set to True to skip co-occurrence for large datasets
+        max_cells_for_cooccurrence=50000  # Auto-skip co-occurrence if more cells
     )
 
     print("\nYou can now explore the results:")
     print("  - Check 'spatial_analysis_results/' folder for figures")
-    print("  - Load 'adata_with_spatial_analysis.h5ad' for further analysis")
+    print("  - Set save_adata=True if you want to save 'adata_with_spatial_analysis.h5ad'")
