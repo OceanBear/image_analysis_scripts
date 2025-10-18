@@ -284,6 +284,15 @@ def visualize_spatial_distribution(adata, cluster_key='cell_type', figsize=(12, 
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
 
+    # Add text showing number of cells displayed
+    text_str = f"Displaying {adata.n_obs:,} cells"
+    ax.text(0.98, 0.02, text_str,
+            transform=ax.transAxes,
+            fontsize=10,
+            verticalalignment='bottom',
+            horizontalalignment='right',
+            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+
     plt.tight_layout()
 
     if save_path:
@@ -465,7 +474,7 @@ def run_spatial_analysis_pipeline(adata_path, output_dir='spatial_analysis_resul
 # Example usage
 if __name__ == "__main__":
     # Run pipeline on your data
-    adata_path = 'tile_39520_7904.h5ad'
+    adata_path = './tile_39520_7904.h5ad'
     #adata_path = 'TCGA-MN-A4N4-01Z-00-DX2.9550732D-8FB1-43D9-B094-7C0CD310E9C0.h5ad'
 
     adata = run_spatial_analysis_pipeline(

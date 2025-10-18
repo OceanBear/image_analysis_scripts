@@ -54,13 +54,13 @@ Complete pipeline using DBSCAN:
 
 ```python
 detector.run_full_pipeline_dbscan(
-    k=20,                       # Number of neighbors for graph
-    eps=0.5,                    # DBSCAN epsilon
-    min_samples=5,              # DBSCAN min_samples
-    handle_noise='separate',
-    celltype_key='cell_type',
-    img_id_key='tile_name',
-    output_dir='cn_results_dbscan'
+   k=20,  # Number of neighbors for graph
+   eps=0.5,  # DBSCAN epsilon
+   min_samples=5,  # DBSCAN min_samples
+   handle_noise='separate',
+   celltype_key='cell_type',
+   img_id_key='tile_name',
+   output_dir='cn_results_dbscan'
 )
 ```
 
@@ -79,12 +79,12 @@ Compare K-means and DBSCAN side-by-side:
 ```python
 detector.compare_methods(
     k=20,
-    n_clusters=6,       # For K-means
-    eps=0.5,           # For DBSCAN
-    min_samples=5,     # For DBSCAN
+    n_clusters=6,  # For K-means
+    eps=0.5,  # For DBSCAN
+    min_samples=5,  # For DBSCAN
     celltype_key='cell_type',
     img_id_key='tile_name',
-    output_dir='cn_comparison'
+    output_dir='cn/cn_comparison'
 )
 ```
 
@@ -140,7 +140,7 @@ detector.run_full_pipeline_dbscan(
     min_samples=5,
     celltype_key='cell_type',
     img_id_key='sample_id',
-    output_dir='cn_results_dbscan'
+    output_dir='cn/cn_results_dbscan'
 )
 
 # Save results

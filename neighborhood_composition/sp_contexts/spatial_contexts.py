@@ -836,7 +836,7 @@ def main():
     """
     # Input file configuration
     # This should be the output from cellular_neighborhoods.py
-    input_file = 'cellular_neighborhoods/tile_39520_7904_adata_cns.h5ad'
+    input_file = '../cellular_neighborhoods/cn/tile_39520_7904_adata_cns.h5ad'
     output_dir = 'spatial_contexts'
 
     # Load data with CN annotations

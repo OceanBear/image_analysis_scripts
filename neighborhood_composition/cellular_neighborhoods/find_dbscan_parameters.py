@@ -21,7 +21,7 @@ def find_parameters():
     print("=" * 80)
 
     # Load your data
-    input_file = 'tile_39520_7904.h5ad'
+    input_file = '../tile_39520_7904.h5ad'
     print(f"\nLoading data from: {input_file}")
     adata = sc.read_h5ad(input_file)
     print(f"Loaded {adata.n_obs} cells")

@@ -34,7 +34,7 @@ def example_dbscan_only(save_adata=False):
     print("=" * 80)
 
     # Load your data
-    input_file = 'tile_39520_7904.h5ad'  # Replace with your file
+    input_file = '../tile_39520_7904.h5ad'  # Replace with your file
     adata = sc.read_h5ad(input_file)
 
     # Initialize detector
@@ -79,7 +79,7 @@ def example_kmeans_only(save_adata=False):
     print("=" * 80)
 
     # Load your data
-    input_file = 'tile_39520_7904.h5ad'
+    input_file = '../tile_39520_7904.h5ad'
     adata = sc.read_h5ad(input_file)
 
     # Initialize detector (can use either class, both support K-means)
@@ -124,7 +124,7 @@ def example_compare_methods(save_adata=False):
     print("=" * 80)
 
     # Load your data
-    input_file = 'tile_39520_7904.h5ad'
+    input_file = '../tile_39520_7904.h5ad'
     adata = sc.read_h5ad(input_file)
 
     # Initialize detector
@@ -178,7 +178,7 @@ def example_manual_workflow(save_adata=False):
     os.makedirs('manual_workflow', exist_ok=True)
 
     # Load your data
-    input_file = 'tile_39520_7904.h5ad'
+    input_file = '../tile_39520_7904.h5ad'
     adata = sc.read_h5ad(input_file)
 
     # Initialize detector

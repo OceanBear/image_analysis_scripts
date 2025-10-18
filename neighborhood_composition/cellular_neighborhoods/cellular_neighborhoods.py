@@ -486,8 +486,8 @@ def main():
     Example usage of CellularNeighborhoodDetector.
     """
     # Input file configuration
-    input_file = 'tile_39520_7904.h5ad'
-    output_dir = 'cellular_neighborhoods'
+    input_file = '../tile_39520_7904.h5ad'
+    output_dir = 'cn'
 
     # Load data
     print("Loading data...")
