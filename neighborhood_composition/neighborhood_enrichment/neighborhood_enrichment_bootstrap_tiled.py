@@ -396,8 +396,8 @@ def visualize_bootstrap_enrichment(
     cluster_key='cell_type',
     figsize=(14, 10),
     cmap='coolwarm',
-    vmin=-3,
-    vmax=3,
+    vmin=None,
+    vmax=None,
     save_path=None
 ):
     """
@@ -418,8 +418,8 @@ def visualize_bootstrap_enrichment(
         Figure size
     cmap : str
         Colormap
-    vmin, vmax : float
-        Color scale limits
+    vmin, vmax : float, optional
+        Color scale limits. If None, automatically determined from data
     save_path : str, optional
         Path to save figure
     """
@@ -429,6 +429,14 @@ def visualize_bootstrap_enrichment(
     ci_lower = bootstrap_results['ci_lower']
     ci_upper = bootstrap_results['ci_upper']
     cell_types = bootstrap_results['cell_types']
+
+    # Calculate dynamic color scale if not provided
+    if vmin is None or vmax is None:
+        # Use symmetrical scale around 0 for coolwarm colormap
+        max_abs_value = max(abs(mean_zscore.min()), abs(mean_zscore.max()))
+        vmin = -max_abs_value
+        vmax = max_abs_value
+        print(f"  - Dynamic color scale: [{vmin:.2f}, {vmax:.2f}]")
 
     # Create annotations with CI
     annotations = []

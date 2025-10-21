@@ -158,6 +158,95 @@ def load_json_to_anndata(json_path, tile_name=None, image_height=None):
     return adata
 
 
+def batch_process_json_files(json_dir=None, json_paths=None, output_dir=None):
+    """
+    Batch process multiple JSON files and save each as a separate h5ad file.
+
+    Parameters:
+    -----------
+    json_dir : str or Path, optional
+        Directory containing JSON files to process
+        Either json_dir or json_paths must be provided
+    json_paths : list of str/Path, optional
+        List of specific JSON file paths to process
+        Either json_dir or json_paths must be provided
+    output_dir : str or Path, optional
+        Directory to save output h5ad files
+        If None, saves in the same directory as each JSON file
+
+    Returns:
+    --------
+    results : dict
+        Dictionary with processing results:
+        - 'success': list of successfully processed files
+        - 'failed': list of (file, error_message) tuples for failed files
+    """
+
+    # Determine which JSON files to process
+    if json_paths is None and json_dir is None:
+        raise ValueError("Either json_dir or json_paths must be provided")
+
+    if json_paths is None:
+        json_dir = Path(json_dir)
+        json_paths = sorted(json_dir.glob("*.json"))
+        print(f"Found {len(json_paths)} JSON files in {json_dir}")
+    else:
+        json_paths = [Path(p) for p in json_paths]
+
+    if len(json_paths) == 0:
+        print("No JSON files found to process")
+        return {'success': [], 'failed': []}
+
+    # Setup output directory
+    if output_dir is not None:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(exist_ok=True, parents=True)
+        print(f"Output directory: {output_dir}")
+
+    # Track results
+    results = {'success': [], 'failed': []}
+
+    print(f"\n{'='*60}")
+    print(f"BATCH PROCESSING: {len(json_paths)} JSON FILES")
+    print(f"{'='*60}\n")
+
+    # Process each JSON file
+    for json_path in tqdm(json_paths, desc="Processing JSON files", unit="file"):
+        try:
+            # Load and convert JSON to AnnData
+            adata = load_json_to_anndata(json_path)
+
+            # Determine output path
+            if output_dir is not None:
+                output_path = output_dir / f"{json_path.stem}.h5ad"
+            else:
+                output_path = json_path.parent / f"{json_path.stem}.h5ad"
+
+            # Save h5ad file
+            adata.write(output_path)
+            results['success'].append(str(json_path))
+
+            print(f"  ✓ Saved: {output_path.name}")
+
+        except Exception as e:
+            error_msg = f"{type(e).__name__}: {str(e)}"
+            results['failed'].append((str(json_path), error_msg))
+            print(f"  ✗ Failed: {json_path.name} - {error_msg}")
+
+    # Print summary
+    print(f"\n{'='*60}")
+    print(f"BATCH PROCESSING COMPLETE")
+    print(f"{'='*60}")
+    print(f"Successfully processed: {len(results['success'])}/{len(json_paths)} files")
+    if results['failed']:
+        print(f"Failed: {len(results['failed'])} files")
+        print("\nFailed files:")
+        for filepath, error in results['failed']:
+            print(f"  - {Path(filepath).name}: {error}")
+
+    return results
+
+
 def combine_multiple_tiles(json_paths, tile_positions=None):
     """
     Combine multiple tiles into a single AnnData object.
@@ -203,19 +292,75 @@ def combine_multiple_tiles(json_paths, tile_positions=None):
 
 # Example usage
 if __name__ == "__main__":
-    # Single tile analysis
-    #json_path = '/mnt/g/GDC-TCGA-LUAD/00a0b174-1eab-446a-ba8c-7c6e3acd7f0c/pred_00a0b174-1eab-446a-ba8c-7c6e3acd7f0c/json/tile_39520_7904.json'
-    json_path = '/mnt/g/GDC-TCGA-LUAD/00a0b174-1eab-446a-ba8c-7c6e3acd7f0c/TCGA-MN-A4N4-01Z-00-DX2.9550732D-8FB1-43D9-B094-7C0CD310E9C0.json'
+    # ========================================================================
+    # PROCESSING MODE SELECTION
+    # ========================================================================
+    # Choose one of the following modes:
+    # - 'single': Process a single JSON file
+    # - 'batch': Process multiple JSON files (saves each as separate h5ad)
+    # - 'combine': Combine multiple tiles into one AnnData object
+    # ========================================================================
 
-    adata = load_json_to_anndata(json_path)
+    # Change this to 'single', 'batch', or 'combine'
 
-    # Save to h5ad format for later use
-    # Automatically generate output filename from input filename
-    output_path = Path(json_path).stem + '.h5ad'
-    adata.write(output_path)
-    print(f"\nAnnData object saved to '{output_path}'")
+    MODE = 'batch'
+    # ========================================================================
+    # MODE 1: SINGLE FILE PROCESSING
+    # ========================================================================
+    if MODE == 'single':
+        json_path = '/mnt/g/GDC-TCGA-LUAD/00a0b174-1eab-446a-ba8c-7c6e3acd7f0c/TCGA-MN-A4N4-01Z-00-DX2.9550732D-8FB1-43D9-B094-7C0CD310E9C0.json'
 
-    # Example: Multiple tiles (uncomment when you have multiple tiles)
-    # json_paths = ['tile_1.json', 'tile_2.json', 'tile_3.json']
-    # adata_combined = combine_multiple_tiles(json_paths)
-    # adata_combined.write('combined_tiles.h5ad')
+        adata = load_json_to_anndata(json_path)
+
+        # Save to h5ad format for later use
+        output_path = Path(json_path).stem + '.h5ad'
+        adata.write(output_path)
+        print(f"\nAnnData object saved to '{output_path}'")
+
+    # ========================================================================
+    # MODE 2: BATCH PROCESSING (NEW)
+    # ========================================================================
+    elif MODE == 'batch':
+        # Option A: Process all JSON files in a directory
+        json_dir = '/mnt/g/GDC-TCGA-LUAD/00a0b174-1eab-446a-ba8c-7c6e3acd7f0c/pred/json'
+        output_dir = '/mnt/g/GDC-TCGA-LUAD/00a0b174-1eab-446a-ba8c-7c6e3acd7f0c/pred/h5ad'  # Optional: specify output directory
+
+        results = batch_process_json_files(
+            json_dir=json_dir,
+            output_dir=output_dir  # Set to None to save in same directory as JSON files
+        )
+
+        # Option B: Process specific list of JSON files (uncomment to use)
+        # json_paths = [
+        #     '/path/to/file1.json',
+        #     '/path/to/file2.json',
+        #     '/path/to/file3.json'
+        # ]
+        # results = batch_process_json_files(
+        #     json_paths=json_paths,
+        #     output_dir=None  # Optional output directory
+        # )
+
+    # ========================================================================
+    # MODE 3: COMBINE MULTIPLE TILES
+    # ========================================================================
+    elif MODE == 'combine':
+        json_paths = ['tile_1.json', 'tile_2.json', 'tile_3.json']
+
+        # Optional: Provide tile positions for spatial alignment
+        # tile_positions = {
+        #     'tile_1': (0, 0),
+        #     'tile_2': (1000, 0),
+        #     'tile_3': (0, 1000)
+        # }
+
+        adata_combined = combine_multiple_tiles(
+            json_paths,
+            # tile_positions=tile_positions  # Uncomment if using positions
+        )
+
+        adata_combined.write('combined_tiles.h5ad')
+        print(f"\nCombined AnnData object saved to 'combined_tiles.h5ad'")
+
+    else:
+        raise ValueError(f"Invalid MODE: '{MODE}'. Must be 'single', 'batch', or 'combine'")
