@@ -5,7 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
-from neighborhood_enrichment_tiled import (
+from ne_tiled import (
     load_and_apply_cell_type_colors,
     build_spatial_graph,
     neighborhood_enrichment_analysis,
@@ -287,7 +287,7 @@ def run_wsi_spatial_analysis_pipeline(
     This pipeline handles datasets with 1M+ cells by:
     1. Subsampling to a manageable size for analysis
     2. Further subsampling for visualization
-    3. Reusing validated functions from neighborhood_enrichment_tiled.py
+    3. Reusing validated functions from ne_tiled.py
 
     Parameters:
     -----------

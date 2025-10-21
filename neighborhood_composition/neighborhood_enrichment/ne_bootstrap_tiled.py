@@ -27,7 +27,7 @@ from tqdm import tqdm
 import warnings
 
 # Import reusable functions from existing modules
-from neighborhood_enrichment_tiled import (
+from ne_tiled import (
     load_and_apply_cell_type_colors,
     build_spatial_graph,
     neighborhood_enrichment_analysis,

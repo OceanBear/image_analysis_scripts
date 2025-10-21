@@ -9,7 +9,7 @@ Date: 2025-10-15
 """
 
 import scanpy as sc
-from dbscan_cellular_neighborhoods import DBSCANCellularNeighborhoodDetector
+from cn_dbscan import DBSCANCellularNeighborhoodDetector
 
 
 def find_parameters():
@@ -52,7 +52,7 @@ def find_parameters():
     min_samples = suggestions['suggested_min_samples']
 
     print(f"\nTesting: eps={eps_balanced:.4f}, min_samples={min_samples}")
-    detector.detect_cellular_neighborhoods_dbscan(
+    detector.detect_cn_dbscan(
         eps=eps_balanced,
         min_samples=min_samples,
         output_key='cn_test'

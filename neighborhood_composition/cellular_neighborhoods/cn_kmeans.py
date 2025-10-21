@@ -1,4 +1,4 @@
-# cellular_neighborhoods.py
+# cn_kmeans.py
 
 import numpy as np
 import pandas as pd

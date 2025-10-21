@@ -15,7 +15,7 @@ import seaborn as sns
 from sklearn.cluster import DBSCAN
 from scipy.spatial import distance_matrix
 from typing import Optional
-from cellular_neighborhoods import CellularNeighborhoodDetector
+from cn_kmeans import CellularNeighborhoodDetector
 
 
 class DBSCANCellularNeighborhoodDetector(CellularNeighborhoodDetector):
@@ -26,7 +26,7 @@ class DBSCANCellularNeighborhoodDetector(CellularNeighborhoodDetector):
     functionality from the parent class.
     """
 
-    def detect_cellular_neighborhoods_dbscan(
+    def detect_cn_dbscan(
             self,
             eps: float = 0.5,
             min_samples: int = 5,
@@ -193,7 +193,7 @@ class DBSCANCellularNeighborhoodDetector(CellularNeighborhoodDetector):
         self.aggregate_neighbors(cluster_key=celltype_key)
 
         # Step 3: Detect CNs using DBSCAN
-        self.detect_cellular_neighborhoods_dbscan(
+        self.detect_cn_dbscan(
             eps=eps,
             min_samples=min_samples,
             handle_noise=handle_noise,
@@ -208,19 +208,19 @@ class DBSCANCellularNeighborhoodDetector(CellularNeighborhoodDetector):
         self.visualize_spatial_cns(
             cn_key=output_key,
             img_id_key=img_id_key,
-            save_path=f'{output_dir}/spatial_cns_dbscan.png'
+            save_path=f'{output_dir}/spatial_cns_dbscan_{eps}_{min_samples}.png'
         )
 
         # Step 5: Visualize CN composition
         fig, composition, composition_zscore = self.visualize_cn_composition(
             cn_key=output_key,
             celltype_key=celltype_key,
-            save_path=f'{output_dir}/cn_composition_heatmap_dbscan.png'
+            save_path=f'{output_dir}/cn_composition_heatmap_dbscan_{eps}_{min_samples}.png'
         )
 
         # Step 6: Save results
-        composition.to_csv(f'{output_dir}/cn_composition_dbscan.csv')
-        composition_zscore.to_csv(f'{output_dir}/cn_composition_zscore_dbscan.csv')
+        composition.to_csv(f'{output_dir}/cn_composition_dbscan_{eps}_{min_samples}.csv')
+        composition_zscore.to_csv(f'{output_dir}/cn_composition_zscore_dbscan_{eps}_{min_samples}.csv')
 
         print("\n" + "=" * 60)
         print("PIPELINE COMPLETE!")

@@ -32,10 +32,10 @@ DBSCAN offers several advantages over K-means:
 The core DBSCAN clustering method:
 
 ```python
-detector.detect_cellular_neighborhoods_dbscan(
-    eps=0.5,                    # Neighborhood radius
-    min_samples=5,              # Minimum cluster size
-    handle_noise='separate',    # How to handle noise points
+detector.detect_cn_dbscan(
+    eps=0.5,  # Neighborhood radius
+    min_samples=5,  # Minimum cluster size
+    handle_noise='separate',  # How to handle noise points
     output_key='cn_celltype_dbscan'
 )
 ```
@@ -172,7 +172,7 @@ detector.compare_methods(
 # Step-by-step for more control
 detector.build_knn_graph(k=20)
 detector.aggregate_neighbors(cluster_key='cell_type')
-detector.detect_cellular_neighborhoods_dbscan(
+detector.detect_cn_dbscan(
     eps=0.5,
     min_samples=5,
     output_key='my_dbscan_labels'

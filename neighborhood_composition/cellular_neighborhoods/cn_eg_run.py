@@ -10,7 +10,7 @@ Date: 2025-10-15
 """
 
 import scanpy as sc
-from dbscan_cellular_neighborhoods import DBSCANCellularNeighborhoodDetector
+from cn_dbscan import DBSCANCellularNeighborhoodDetector
 
 
 def example_dbscan_only(save_adata=False):
@@ -41,10 +41,10 @@ def example_dbscan_only(save_adata=False):
 
     # Run DBSCAN pipeline
     detector.run_full_pipeline_dbscan(
-        k=20,                      # Number of neighbors for graph construction
+        k=10,                      # Number of neighbors for graph construction
         eps=0.1,                   # DBSCAN epsilon (neighborhood radius)(Use the value as suggested)
-        min_samples=10,             # DBSCAN min_samples
-        handle_noise='separate',   # 'separate' or 'nearest'
+        min_samples=20,             # DBSCAN min_samples
+        handle_noise='nearest',   # For the noise points, choose 'separate' or 'nearest'
         celltype_key='cell_type',  # Adjust to your column name
         img_id_key='tile_name',    # Adjust to your column name
         output_dir='cn_results_dbscan'
