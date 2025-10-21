@@ -2,13 +2,13 @@
 Find Optimal Number of Neighbors (k) for Cellular Neighborhood Detection
 
 This script finds the optimal number of neighbors (k) for a given number of
-cellular neighborhoods (n_clusters) using the Silhouette Score.
+cellular neighborhoods (n_clusters) using the Calinski-Harabasz Index.
 
-Method: Silhouette Score Maximization
-- Measures how well-separated the clusters are
-- Score ranges from -1 to 1 (higher is better)
-- > 0.5: Good cluster separation
-- > 0.7: Strong cluster separation
+Method: Calinski-Harabasz Index Maximization
+- Ratio of between-cluster to within-cluster variance
+- Higher values indicate better-defined, more distinct clusters
+- Less biased toward small k than silhouette score
+- Better for capturing meaningful neighborhood structure
 
 Author: Generated with Claude Code
 Date: 2025-10-21
@@ -20,14 +20,14 @@ import scanpy as sc
 import matplotlib.pyplot as plt
 from pathlib import Path
 from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score
+from sklearn.metrics import calinski_harabasz_score
 from typing import Tuple, List
 import warnings
 
 warnings.filterwarnings('ignore')
 
 
-def compute_silhouette_scores(
+def compute_calinski_harabasz_scores(
     adata: sc.AnnData,
     k_neighbors_range: List[int],
     n_clusters: int,
@@ -35,7 +35,7 @@ def compute_silhouette_scores(
     random_state: int = 220705
 ) -> pd.DataFrame:
     """
-    Compute silhouette scores for different numbers of neighbors.
+    Compute Calinski-Harabasz scores for different numbers of neighbors.
 
     Parameters:
     -----------
@@ -53,11 +53,11 @@ def compute_silhouette_scores(
     Returns:
     --------
     scores_df : DataFrame
-        DataFrame with silhouette scores for each k_neighbors value
+        DataFrame with Calinski-Harabasz scores for each k_neighbors value
     """
     import squidpy as sq
 
-    print(f"Computing silhouette scores for k = {min(k_neighbors_range)} to {max(k_neighbors_range)}...")
+    print(f"Computing Calinski-Harabasz scores for k = {min(k_neighbors_range)} to {max(k_neighbors_range)}...")
     print(f"  - Fixed n_clusters = {n_clusters}")
 
     results = []
@@ -94,33 +94,33 @@ def compute_silhouette_scores(
         kmeans = KMeans(n_clusters=n_clusters, random_state=random_state, n_init=10)
         labels = kmeans.fit_predict(aggregated)
 
-        # Compute silhouette score
-        silhouette = silhouette_score(aggregated, labels)
+        # Compute Calinski-Harabasz score
+        ch_score = calinski_harabasz_score(aggregated, labels)
 
         results.append({
             'k_neighbors': k,
-            'silhouette_score': silhouette
+            'calinski_harabasz_score': ch_score
         })
 
     scores_df = pd.DataFrame(results)
 
-    print("\nSilhouette score computation complete!")
+    print("\nCalinski-Harabasz score computation complete!")
     return scores_df
 
 
-def visualize_silhouette_analysis(
+def visualize_calinski_analysis(
     scores_df: pd.DataFrame,
     n_clusters: int,
     figsize: Tuple[int, int] = (10, 6),
     save_path: str = None
 ):
     """
-    Visualize silhouette scores vs. number of neighbors.
+    Visualize Calinski-Harabasz scores vs. number of neighbors.
 
     Parameters:
     -----------
     scores_df : DataFrame
-        DataFrame with silhouette scores
+        DataFrame with Calinski-Harabasz scores
     n_clusters : int
         Number of clusters used
     figsize : tuple
@@ -133,50 +133,41 @@ def visualize_silhouette_analysis(
     fig : Figure
         Matplotlib figure object
     optimal_k : int
-        Optimal k_neighbors from silhouette score
+        Optimal k_neighbors from Calinski-Harabasz score
     """
-    print("\nGenerating silhouette analysis plot...")
+    print("\nGenerating Calinski-Harabasz analysis plot...")
 
     k_values = scores_df['k_neighbors'].values
-    silhouettes = scores_df['silhouette_score'].values
+    ch_scores = scores_df['calinski_harabasz_score'].values
 
-    # Find optimal k (maximum silhouette score)
-    optimal_idx = np.argmax(silhouettes)
+    # Find optimal k (maximum Calinski-Harabasz score)
+    optimal_idx = np.argmax(ch_scores)
     optimal_k = k_values[optimal_idx]
-    optimal_score = silhouettes[optimal_idx]
+    optimal_score = ch_scores[optimal_idx]
 
     # Create figure
     fig, ax = plt.subplots(figsize=figsize)
 
-    # Plot silhouette scores
-    ax.plot(k_values, silhouettes, 'o-', linewidth=2, markersize=8,
-            color='steelblue', label='Silhouette Score')
+    # Plot Calinski-Harabasz scores
+    ax.plot(k_values, ch_scores, 'o-', linewidth=2, markersize=8,
+            color='steelblue', label='Calinski-Harabasz Score')
 
     # Mark optimal point
     ax.scatter([optimal_k], [optimal_score],
               color='red', s=400, marker='*', zorder=5,
-              label=f'Optimal k={optimal_k} (score={optimal_score:.3f})',
+              label=f'Optimal k={optimal_k} (score={optimal_score:.1f})',
               edgecolor='darkred', linewidth=2)
 
     # Add vertical line at optimal k
     ax.axvline(x=optimal_k, color='red', linestyle=':', alpha=0.5, linewidth=1.5)
 
-    # Add horizontal reference lines
-    ax.axhline(y=0.5, color='orange', linestyle='--', alpha=0.3, linewidth=1,
-               label='Good threshold (0.5)')
-    ax.axhline(y=0.7, color='green', linestyle='--', alpha=0.3, linewidth=1,
-               label='Strong threshold (0.7)')
-
     ax.set_xlabel('Number of Neighbors (k)', fontsize=13)
-    ax.set_ylabel('Silhouette Score', fontsize=13)
-    ax.set_title(f'Optimal k for n_clusters={n_clusters}\n(Silhouette Score Maximization)',
+    ax.set_ylabel('Calinski-Harabasz Index', fontsize=13)
+    ax.set_title(f'Optimal k for n_clusters={n_clusters}\n(Calinski-Harabasz Index Maximization)',
                  fontsize=15, fontweight='bold', pad=20)
     ax.grid(True, alpha=0.3)
     ax.set_xticks(k_values[::2])  # Show every other tick to avoid crowding
     ax.legend(loc='best', fontsize=11)
-
-    # Set y-axis limits for better visualization
-    ax.set_ylim([max(0, silhouettes.min() - 0.05), min(1, silhouettes.max() + 0.05)])
 
     plt.tight_layout()
 
@@ -242,8 +233,8 @@ def run_k_neighbors_optimization(
         k_neighbors_range = list(range(5, 51, 5))  # 5, 10, 15, ..., 50
         print(f"\nUsing default k_neighbors range: {k_neighbors_range}")
 
-    # Compute silhouette scores
-    scores_df = compute_silhouette_scores(
+    # Compute Calinski-Harabasz scores
+    scores_df = compute_calinski_harabasz_scores(
         adata,
         k_neighbors_range=k_neighbors_range,
         n_clusters=n_clusters,
@@ -251,15 +242,15 @@ def run_k_neighbors_optimization(
         random_state=random_state
     )
 
-    # Save silhouette scores
-    scores_df.to_csv(output_dir / 'silhouette_scores.csv', index=False)
-    print(f"\n  - Saved silhouette scores to: {output_dir / 'silhouette_scores.csv'}")
+    # Save scores
+    scores_df.to_csv(output_dir / 'calinski_harabasz_scores.csv', index=False)
+    print(f"\n  - Saved Calinski-Harabasz scores to: {output_dir / 'calinski_harabasz_scores.csv'}")
 
-    # Visualize silhouette analysis
+    # Visualize Calinski-Harabasz analysis
     print("\n" + "=" * 70)
-    print("SILHOUETTE ANALYSIS")
+    print("CALINSKI-HARABASZ ANALYSIS")
     print("=" * 70)
-    fig, optimal_k = visualize_silhouette_analysis(
+    fig, optimal_k = visualize_calinski_analysis(
         scores_df,
         n_clusters=n_clusters,
         save_path=output_dir / 'k_neighbors_analysis.png'
@@ -267,58 +258,51 @@ def run_k_neighbors_optimization(
 
     # Print recommendations
     optimal_row = scores_df[scores_df['k_neighbors'] == optimal_k].iloc[0]
-    optimal_score = optimal_row['silhouette_score']
+    optimal_score = optimal_row['calinski_harabasz_score']
 
     print("\n" + "=" * 70)
     print("OPTIMAL k_neighbors RECOMMENDATION")
     print("=" * 70)
     print(f"\n✓ RECOMMENDED k_neighbors = {optimal_k}")
-    print(f"  Silhouette Score: {optimal_score:.3f}")
-
-    # Interpret the score
-    if optimal_score > 0.7:
-        quality = "EXCELLENT - Strong cluster separation"
-    elif optimal_score > 0.5:
-        quality = "GOOD - Reasonable cluster separation"
-    elif optimal_score > 0.25:
-        quality = "FAIR - Weak cluster structure"
-    else:
-        quality = "POOR - No meaningful cluster structure"
-
-    print(f"  Quality: {quality}")
+    print(f"  Calinski-Harabasz Score: {optimal_score:.1f}")
     print(f"\n   → Use k_neighbors = {optimal_k} in your cellular_neighborhoods.py")
 
     print(f"\n" + "=" * 70)
     print("HOW IT WORKS:")
     print("=" * 70)
     print("""
-The silhouette score measures how well-separated the clusters are:
+The Calinski-Harabasz Index measures cluster quality:
 
 1. For each k_neighbors value:
    - Build spatial graph with k nearest neighbors
    - Aggregate neighbor cell type composition
    - Cluster cells into n_clusters groups using KMeans
-   - Compute silhouette score
+   - Compute Calinski-Harabasz score
 
-2. Silhouette score interpretation:
-   - Ranges from -1 to 1
-   - Higher scores = better cluster separation
-   - Score considers both:
-     • How close cells are to their own cluster
-     • How far cells are from other clusters
+2. Calinski-Harabasz Index (Variance Ratio):
+   - Ratio of between-cluster to within-cluster variance
+   - Higher scores = better-defined, more distinct clusters
+   - Score considers:
+     • How separated clusters are from each other (between variance)
+     • How tight/compact clusters are internally (within variance)
 
-3. Optimal k maximizes the silhouette score:
-   - Too few neighbors: Noisy, unstable clusters
+3. Why Calinski-Harabasz for k optimization:
+   - Less biased toward small k than silhouette score
+   - Better captures meaningful neighborhood structure
+   - Balances cluster separation with cluster coherence
+
+4. Optimal k maximizes the Calinski-Harabasz score:
+   - Too few neighbors: Noisy features, poor cluster definition
    - Too many neighbors: Over-smoothed, loses local structure
-   - Optimal k: Best balance for cluster separation
+   - Optimal k: Best variance ratio for distinct neighborhoods
     """)
 
     print(f"\n{'=' * 70}")
     print("OPTIMIZATION COMPLETE!")
     print(f"{'=' * 70}")
     print(f"\nResults saved to: {output_dir}/")
-    print(f"  - k_neighbors_analysis.png: Visualization of silhouette scores")
-    print(f"  - silhouette_scores.csv: Raw silhouette score data")
+    print(f"  - k_neighbors_analysis.png: Visualization of Calinski-Harabasz scores")
+    print(f"  - calinski_harabasz_scores.csv: Raw score data")
 
     return scores_df, optimal_k
 

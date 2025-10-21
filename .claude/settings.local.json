@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(del regenerate_comparison.py)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
