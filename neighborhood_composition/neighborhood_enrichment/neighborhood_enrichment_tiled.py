@@ -474,8 +474,10 @@ def run_spatial_analysis_pipeline(adata_path, output_dir='spatial_analysis_resul
 # Example usage
 if __name__ == "__main__":
     # Run pipeline on your data
-    adata_path = './tile_39520_7904.h5ad'
-    #adata_path = 'TCGA-MN-A4N4-01Z-00-DX2.9550732D-8FB1-43D9-B094-7C0CD310E9C0.h5ad'
+    # current_dir = os.path.dirname(__file__)
+    # parent_dir = os.path.dirname(current_dir)
+    # adata_path = os.path.join(parent_dir, "tile_39520_7904.h5ad")
+    adata_path = '../tile_39520_7904.h5ad'
 
     adata = run_spatial_analysis_pipeline(
         adata_path=adata_path,

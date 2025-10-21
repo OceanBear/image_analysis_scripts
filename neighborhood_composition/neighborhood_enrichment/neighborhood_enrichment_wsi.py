@@ -1,3 +1,4 @@
+import os
 import scanpy as sc
 import numpy as np
 import pandas as pd
@@ -450,7 +451,10 @@ def run_wsi_spatial_analysis_pipeline(
 # Example usage
 if __name__ == "__main__":
     # WSI file path
-    adata_path = './TCGA-MN-A4N4-01Z-00-DX2.9550732D-8FB1-43D9-B094-7C0CD310E9C0.h5ad'
+    # current_dir = os.path.dirname(__file__)
+    # parent_dir = os.path.dirname(current_dir)
+    # adata_path = os.path.join(parent_dir, "TCGA-MN-A4N4-01Z-00-DX2.9550732D-8FB1-43D9-B094-7C0CD310E9C0.h5ad")
+    adata_path = '../TCGA-MN-A4N4-01Z-00-DX2.9550732D-8FB1-43D9-B094-7C0CD310E9C0.h5ad'
 
     # Run WSI-optimized pipeline
     adata = run_wsi_spatial_analysis_pipeline(
