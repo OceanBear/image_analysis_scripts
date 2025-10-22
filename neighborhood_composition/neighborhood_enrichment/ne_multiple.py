@@ -111,6 +111,7 @@ def process_single_tile(
     n_perms=1000,
     cluster_key='cell_type',
     save_adata=False,
+    n_neighbors=6,
     skip_cooccurrence=True,
     max_cells_for_cooccurrence=50000
 ):
@@ -155,7 +156,7 @@ def process_single_tile(
     load_and_apply_cell_type_colors(adata, celltype_key=cluster_key)
 
     # Build spatial graph
-    adata = build_spatial_graph(adata, method='radius', radius=radius)
+    adata = build_spatial_graph(adata, method='knn', n_neighbors=n_neighbors)
 
     # Neighborhood enrichment
     adata = neighborhood_enrichment_analysis(
@@ -177,6 +178,8 @@ def process_single_tile(
     visualize_enrichment(
         adata,
         cluster_key=cluster_key,
+        n_perms=n_perms,
+        n_neighbors=n_neighbors,
         save_path=output_dir / f'{tile_name}_neighborhood_enrichment.png'
     )
 
@@ -374,6 +377,7 @@ def run_multiple_tiles_pipeline(
     n_perms=1000,
     cluster_key='cell_type',
     save_adata=False,
+    n_neighbors=6,
     skip_cooccurrence=True,
     max_cells_for_cooccurrence=50000,
     file_pattern='*.h5ad'
@@ -474,6 +478,7 @@ def run_multiple_tiles_pipeline(
                 output_dir=tile_output_dir,
                 radius=radius,
                 n_perms=n_perms,
+                n_neighbors=n_neighbors,
                 cluster_key=cluster_key,
                 save_adata=save_adata,
                 skip_cooccurrence=skip_cooccurrence,
@@ -582,6 +587,7 @@ if __name__ == "__main__":
         output_dir=output_dir,
         radius=50,                      # Adjust based on your tissue/magnification
         n_perms=1000,                   # Number of permutations
+        n_neighbors=6,
         cluster_key='cell_type',        # Adjust to your cell type column
         save_adata=False,               # Set to True to save processed h5ad files
         skip_cooccurrence=True,         # Skip co-occurrence for faster processing

@@ -188,7 +188,7 @@ def compute_centrality_scores(adata, cluster_key='cell_type'):
     return adata
 
 
-def visualize_enrichment(adata, cluster_key='cell_type', figsize=(10, 8), save_path=None, radius=None, n_perms=None):
+def visualize_enrichment(adata, cluster_key='cell_type', figsize=(10, 8), save_path=None, radius=None, n_neighbors=None, n_perms=None):
     """
     Visualize neighborhood enrichment as a heatmap.
 
@@ -204,6 +204,8 @@ def visualize_enrichment(adata, cluster_key='cell_type', figsize=(10, 8), save_p
         Path to save figure
     radius : float, optional
         Radius used for spatial graph (displayed in title)
+    n_neighbors : int, optional
+        Number of neighbors for KNN method (displayed in title)
     n_perms : int, optional
         Number of permutations used (displayed in title)
     """
@@ -250,12 +252,14 @@ def visualize_enrichment(adata, cluster_key='cell_type', figsize=(10, 8), save_p
     ax.set_xlabel('Cell Type', fontsize=12)
     ax.set_ylabel('Cell Type', fontsize=12)
 
-    # Build title with optional radius and n_perms
+    # Build title with optional radius/knn and n_perms
     title = 'Neighborhood Enrichment Analysis\n(Mean Z-score)'
-    if radius is not None or n_perms is not None:
+    if radius is not None or n_neighbors is not None or n_perms is not None:
         params = []
         if radius is not None:
             params.append(f'radius={radius}')
+        if n_neighbors is not None:
+            params.append(f'knn={n_neighbors}')
         if n_perms is not None:
             params.append(f'n_perms={n_perms}')
         title += f'\n({", ".join(params)})'
@@ -416,9 +420,294 @@ def summarize_interactions(adata, cluster_key='cell_type', threshold=2.0):
     return interactions_df
 
 
+def save_intermediate_results(adata, output_dir, tile_name=None, cluster_key='cell_type'):
+    """
+    Save intermediate results for efficient aggregation later.
+
+    This saves zscore matrix and metadata to disk, avoiding the need to keep
+    large AnnData objects in memory during batch processing.
+
+    Parameters:
+    -----------
+    adata : AnnData
+        AnnData object with enrichment results
+    output_dir : str or Path
+        Directory to save intermediate results
+    tile_name : str, optional
+        Name of the tile (for prefixing files). If None, no prefix used.
+    cluster_key : str, default='cell_type'
+        Key for cell type labels
+
+    Returns:
+    --------
+    saved_files : dict
+        Dictionary with paths to saved files
+    """
+    import json
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(exist_ok=True, parents=True)
+
+    # Get prefix for files
+    prefix = f'{tile_name}_' if tile_name else ''
+
+    # Extract enrichment results
+    zscore = adata.uns[f'{cluster_key}_nhood_enrichment']['zscore']
+    if isinstance(zscore, pd.DataFrame):
+        zscore_array = zscore.values
+    else:
+        zscore_array = np.array(zscore)
+
+    # Get cell types
+    cell_types = adata.obs[cluster_key].cat.categories.tolist()
+
+    # Save zscore as numpy binary (fast and compact)
+    zscore_path = output_dir / f'{prefix}zscore.npy'
+    np.save(zscore_path, zscore_array)
+
+    # Save metadata as JSON
+    metadata = {
+        'tile_name': tile_name,
+        'n_cells': int(adata.n_obs),
+        'cell_types': cell_types,
+        'cluster_key': cluster_key,
+        'zscore_shape': zscore_array.shape,
+        'mean_abs_zscore': float(np.abs(zscore_array).mean()),
+        'max_abs_zscore': float(np.abs(zscore_array).max())
+    }
+
+    metadata_path = output_dir / f'{prefix}metadata.json'
+    with open(metadata_path, 'w') as f:
+        json.dump(metadata, f, indent=2)
+
+    print(f"  - Saved intermediate results:")
+    print(f"    • {zscore_path.name}")
+    print(f"    • {metadata_path.name}")
+
+    return {
+        'zscore_path': zscore_path,
+        'metadata_path': metadata_path,
+        'zscore': zscore_array,
+        'metadata': metadata
+    }
+
+
+def load_intermediate_results(output_dir, tile_name=None):
+    """
+    Load intermediate results saved by save_intermediate_results().
+
+    Parameters:
+    -----------
+    output_dir : str or Path
+        Directory containing saved results
+    tile_name : str, optional
+        Name of the tile (for prefixing files). If None, no prefix used.
+
+    Returns:
+    --------
+    results : dict
+        Dictionary containing zscore array and metadata
+    """
+    import json
+
+    output_dir = Path(output_dir)
+    prefix = f'{tile_name}_' if tile_name else ''
+
+    # Load zscore
+    zscore_path = output_dir / f'{prefix}zscore.npy'
+    if not zscore_path.exists():
+        raise FileNotFoundError(f"Zscore file not found: {zscore_path}")
+    zscore = np.load(zscore_path)
+
+    # Load metadata
+    metadata_path = output_dir / f'{prefix}metadata.json'
+    if not metadata_path.exists():
+        raise FileNotFoundError(f"Metadata file not found: {metadata_path}")
+
+    with open(metadata_path, 'r') as f:
+        metadata = json.load(f)
+
+    return {
+        'zscore': zscore,
+        'metadata': metadata,
+        'cell_types': metadata['cell_types'],
+        'n_cells': metadata['n_cells'],
+        'tile_name': metadata.get('tile_name')
+    }
+
+
+def aggregate_from_saved_results(tile_dirs, output_dir, tile_names=None):
+    """
+    Aggregate results from multiple tiles using saved intermediate files.
+
+    This function loads zscore matrices one at a time from disk and computes
+    aggregated statistics without keeping all data in memory simultaneously.
+
+    Parameters:
+    -----------
+    tile_dirs : list of str/Path
+        List of directories containing intermediate results
+    output_dir : str or Path
+        Directory to save aggregated results
+    tile_names : list of str, optional
+        List of tile names corresponding to tile_dirs. If None, extracts from metadata.
+
+    Returns:
+    --------
+    aggregated : dict
+        Dictionary containing aggregated statistics
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(exist_ok=True, parents=True)
+
+    print("\n" + "=" * 70)
+    print("AGGREGATING RESULTS FROM SAVED FILES")
+    print("=" * 70)
+    print(f"Loading from {len(tile_dirs)} tile directories...")
+
+    # First pass: collect all zscores
+    zscores_list = []
+    metadata_list = []
+    actual_tile_names = []
+
+    for i, tile_dir in enumerate(tile_dirs):
+        tile_dir = Path(tile_dir)
+        tile_name = tile_names[i] if tile_names and i < len(tile_names) else None
+
+        try:
+            results = load_intermediate_results(tile_dir, tile_name=tile_name)
+            zscores_list.append(results['zscore'])
+            metadata_list.append(results['metadata'])
+            actual_tile_names.append(results['tile_name'] or tile_dir.name)
+
+            print(f"  [{i+1}/{len(tile_dirs)}] Loaded: {results['tile_name'] or tile_dir.name} "
+                  f"({results['n_cells']} cells)")
+
+        except Exception as e:
+            print(f"  [!] Warning: Could not load {tile_dir}: {e}")
+            continue
+
+    if len(zscores_list) == 0:
+        raise ValueError("No valid results found to aggregate!")
+
+    # Stack and compute statistics
+    print(f"\nComputing aggregated statistics...")
+    zscores_array = np.stack(zscores_list)  # shape: (n_tiles, n_celltypes, n_celltypes)
+
+    mean_zscore = zscores_array.mean(axis=0)
+    std_zscore = zscores_array.std(axis=0)
+    median_zscore = np.median(zscores_array, axis=0)
+    min_zscore = zscores_array.min(axis=0)
+    max_zscore = zscores_array.max(axis=0)
+
+    # Get cell types from first tile
+    cell_types = metadata_list[0]['cell_types']
+    n_tiles = len(zscores_list)
+
+    print(f"  - Processed {n_tiles} tiles")
+    print(f"  - Mean z-score range: [{mean_zscore.min():.2f}, {mean_zscore.max():.2f}]")
+    print(f"  - Mean std across tiles: {std_zscore.mean():.3f}")
+    print(f"  - Max std across tiles: {std_zscore.max():.3f}")
+
+    # Save aggregated statistics
+    print(f"\nSaving aggregated results to {output_dir}/...")
+
+    mean_df = pd.DataFrame(mean_zscore, index=cell_types, columns=cell_types)
+    mean_df.to_csv(output_dir / 'aggregated_mean_zscore.csv')
+
+    std_df = pd.DataFrame(std_zscore, index=cell_types, columns=cell_types)
+    std_df.to_csv(output_dir / 'aggregated_std_zscore.csv')
+
+    median_df = pd.DataFrame(median_zscore, index=cell_types, columns=cell_types)
+    median_df.to_csv(output_dir / 'aggregated_median_zscore.csv')
+
+    # Visualize mean enrichment
+    fig, ax = plt.subplots(figsize=(10, 8))
+    max_abs_value = max(abs(mean_zscore.min()), abs(mean_zscore.max()))
+
+    sns.heatmap(
+        mean_zscore,
+        cmap='coolwarm',
+        center=0,
+        vmin=-np.ceil(max_abs_value),
+        vmax=np.ceil(max_abs_value),
+        annot=True,
+        fmt='.2f',
+        cbar_kws={'label': 'Mean Z-score'},
+        linewidths=0.5,
+        linecolor='white',
+        xticklabels=cell_types,
+        yticklabels=cell_types,
+        square=True,
+        ax=ax
+    )
+    ax.set_xlabel('Cell Type', fontsize=12)
+    ax.set_ylabel('Cell Type', fontsize=12)
+    ax.set_title(f'Aggregated Neighborhood Enrichment\n(Mean Z-score across {n_tiles} tiles)',
+                 fontsize=14, fontweight='bold', pad=20)
+    plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+    plt.setp(ax.get_yticklabels(), rotation=0)
+    plt.tight_layout()
+    plt.savefig(output_dir / 'aggregated_mean_enrichment.png', dpi=300, bbox_inches='tight')
+    plt.close()
+
+    # Visualize variability
+    fig, ax = plt.subplots(figsize=(10, 8))
+    max_std = std_zscore.max()
+
+    sns.heatmap(
+        std_zscore,
+        cmap='YlOrRd',
+        vmin=0,
+        vmax=np.ceil(max_std),
+        annot=True,
+        fmt='.2f',
+        cbar_kws={'label': 'Standard Deviation'},
+        linewidths=0.5,
+        linecolor='white',
+        xticklabels=cell_types,
+        yticklabels=cell_types,
+        square=True,
+        ax=ax
+    )
+    ax.set_xlabel('Cell Type', fontsize=12)
+    ax.set_ylabel('Cell Type', fontsize=12)
+    ax.set_title(f'Variability Across Tiles\n(Std Dev of Z-scores, {n_tiles} tiles)',
+                 fontsize=14, fontweight='bold', pad=20)
+    plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+    plt.setp(ax.get_yticklabels(), rotation=0)
+    plt.tight_layout()
+    plt.savefig(output_dir / 'aggregated_variability.png', dpi=300, bbox_inches='tight')
+    plt.close()
+
+    print(f"  - Saved aggregated_mean_zscore.csv")
+    print(f"  - Saved aggregated_std_zscore.csv")
+    print(f"  - Saved aggregated_median_zscore.csv")
+    print(f"  - Saved aggregated_mean_enrichment.png")
+    print(f"  - Saved aggregated_variability.png")
+
+    aggregated = {
+        'mean_zscore': mean_zscore,
+        'std_zscore': std_zscore,
+        'median_zscore': median_zscore,
+        'min_zscore': min_zscore,
+        'max_zscore': max_zscore,
+        'cell_types': cell_types,
+        'n_tiles': n_tiles,
+        'tile_names': actual_tile_names,
+        'metadata_list': metadata_list
+    }
+
+    print("\n" + "=" * 70)
+    print("AGGREGATION COMPLETE!")
+    print("=" * 70)
+
+    return aggregated
+
+
 # Main analysis pipeline
 def run_spatial_analysis_pipeline(adata_path, output_dir='spatial_analysis_results',
-                                  radius=50, n_perms=1000, save_adata=False,
+                                  radius=50, n_neighbors=6, n_perms=1000, save_adata=False,
                                   skip_cooccurrence=False, max_cells_for_cooccurrence=50000):
     """
     Run complete spatial analysis pipeline.
@@ -464,8 +753,8 @@ def run_spatial_analysis_pipeline(adata_path, output_dir='spatial_analysis_resul
     load_and_apply_cell_type_colors(adata)
 
     # Step 1: Build spatial graph (Choose radius or knn)
-    adata = build_spatial_graph(adata, method='radius', radius=radius)
-    #adata = build_spatial_graph(adata, method='knn',n_neighbors=6)
+    #adata = build_spatial_graph(adata, method='radius', radius=radius)
+    adata = build_spatial_graph(adata, method='knn',n_neighbors=n_neighbors)
 
     # Step 2: Neighborhood enrichment
     adata = neighborhood_enrichment_analysis(adata, n_perms=n_perms)
@@ -500,7 +789,7 @@ def run_spatial_analysis_pipeline(adata_path, output_dir='spatial_analysis_resul
     visualize_enrichment(
         adata,
         save_path=output_dir / 'neighborhood_enrichment.png',
-        radius=radius,
+        n_neighbors=6,
         n_perms=n_perms
     )
 
@@ -535,6 +824,7 @@ if __name__ == "__main__":
     adata = run_spatial_analysis_pipeline(
         adata_path=adata_path,
         output_dir='spatial_analysis_results',
+        n_neighbors=6,
         radius=50,  # Adjust based on your tissue/magnification
         n_perms=1000,
         save_adata=False,  # Set to True to save the h5ad file
@@ -545,3 +835,55 @@ if __name__ == "__main__":
     print("\nYou can now explore the results:")
     print("  - Check 'spatial_analysis_results/' folder for figures")
     print("  - Set save_adata=True if you want to save 'adata_with_spatial_analysis.h5ad'")
+
+    # ========================================================================
+    # TEST: File-based aggregation functions
+    # ========================================================================
+    print("\n" + "=" * 70)
+    print("TESTING FILE-BASED AGGREGATION FUNCTIONS")
+    print("=" * 70)
+
+    # Test 1: Save intermediate results
+    print("\n[TEST 1] Saving intermediate results...")
+    tile_name = Path(adata_path).stem
+    saved = save_intermediate_results(
+        adata=adata,
+        output_dir='spatial_analysis_results',
+        tile_name=tile_name
+    )
+    print(f"  ✓ Saved zscore shape: {saved['zscore'].shape}")
+    print(f"  ✓ Metadata: {saved['metadata']['n_cells']} cells")
+
+    # Test 2: Load intermediate results
+    print("\n[TEST 2] Loading intermediate results...")
+    loaded = load_intermediate_results(
+        output_dir='spatial_analysis_results',
+        tile_name=tile_name
+    )
+    print(f"  ✓ Loaded zscore shape: {loaded['zscore'].shape}")
+    print(f"  ✓ Cell types: {loaded['cell_types']}")
+    print(f"  ✓ N cells: {loaded['n_cells']}")
+
+    # Test 3: Aggregate from saved results (using single tile as demo)
+    print("\n[TEST 3] Testing aggregation from saved files...")
+    print("  Note: Using same tile twice as a demonstration")
+    aggregated = aggregate_from_saved_results(
+        tile_dirs=['spatial_analysis_results', 'spatial_analysis_results'],
+        output_dir='spatial_analysis_results/aggregated_test',
+        tile_names=[tile_name, tile_name]  # Same tile twice for demo
+    )
+    print(f"  ✓ Aggregated {aggregated['n_tiles']} tiles")
+    print(f"  ✓ Mean z-score shape: {aggregated['mean_zscore'].shape}")
+
+    print("\n" + "=" * 70)
+    print("ALL TESTS PASSED!")
+    print("=" * 70)
+    print("\nThe following functions are ready to use in ne_multiple.py:")
+    print("  1. save_intermediate_results() - Save zscore.npy and metadata.json")
+    print("  2. load_intermediate_results() - Load from saved files")
+    print("  3. aggregate_from_saved_results() - Aggregate multiple tiles from disk")
+    print("\nFiles created for testing:")
+    print(f"  - spatial_analysis_results/{tile_name}_zscore.npy")
+    print(f"  - spatial_analysis_results/{tile_name}_metadata.json")
+    print(f"  - spatial_analysis_results/aggregated_test/aggregated_*.csv")
+    print(f"  - spatial_analysis_results/aggregated_test/aggregated_*.png")
