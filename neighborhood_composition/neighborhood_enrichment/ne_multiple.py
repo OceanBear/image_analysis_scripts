@@ -72,7 +72,7 @@ def find_h5ad_files(directory, pattern='*.h5ad'):
     return h5ad_files
 
 
-def is_tile_processed(output_dir):
+def is_tile_processed(output_dir, tile_name):
     """
     Check if a tile has been fully processed by verifying all output files exist.
 
@@ -80,6 +80,8 @@ def is_tile_processed(output_dir):
     -----------
     output_dir : str or Path
         Directory where tile results should be saved
+    tile_name : str
+        Name of the tile (used as prefix for output files)
 
     Returns:
     --------
@@ -88,11 +90,11 @@ def is_tile_processed(output_dir):
     """
     output_dir = Path(output_dir)
 
-    # Check for all expected output files
+    # Check for all expected output files with tile name prefix
     expected_files = [
-        'spatial_distribution.png',
-        'neighborhood_enrichment.png',
-        'significant_interactions.csv'
+        f'{tile_name}_spatial_distribution.png',
+        f'{tile_name}_neighborhood_enrichment.png',
+        f'{tile_name}_significant_interactions.csv'
     ]
 
     for filename in expected_files:
@@ -139,8 +141,12 @@ def process_single_tile(
     results : dict
         Dictionary containing analysis results
     """
+    adata_path = Path(adata_path)
     output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True, parents=True)
+
+    # Get tile name from file path (without .h5ad extension)
+    tile_name = adata_path.stem
 
     # Load data
     adata = sc.read_h5ad(adata_path)
@@ -161,26 +167,26 @@ def process_single_tile(
     # Centrality scores
     adata = compute_centrality_scores(adata, cluster_key=cluster_key)
 
-    # Visualizations
+    # Visualizations with tile name prefix
     visualize_spatial_distribution(
         adata,
         cluster_key=cluster_key,
-        save_path=output_dir / 'spatial_distribution.png'
+        save_path=output_dir / f'{tile_name}_spatial_distribution.png'
     )
 
     visualize_enrichment(
         adata,
         cluster_key=cluster_key,
-        save_path=output_dir / 'neighborhood_enrichment.png'
+        save_path=output_dir / f'{tile_name}_neighborhood_enrichment.png'
     )
 
     # Summarize interactions
     interactions_df = summarize_interactions(adata, cluster_key=cluster_key)
-    interactions_df.to_csv(output_dir / 'significant_interactions.csv', index=False)
+    interactions_df.to_csv(output_dir / f'{tile_name}_significant_interactions.csv', index=False)
 
     # Save processed data if requested
     if save_adata:
-        output_adata_path = output_dir / 'adata_with_spatial_analysis.h5ad'
+        output_adata_path = output_dir / f'{tile_name}_adata_with_spatial_analysis.h5ad'
         adata.write(output_adata_path)
 
     # Extract results
@@ -431,14 +437,14 @@ def run_multiple_tiles_pipeline(
         print(f"\n[{i+1}/{n_tiles}] Processing: {tile_name}")
 
         # Check if tile is already processed
-        if is_tile_processed(tile_output_dir):
+        if is_tile_processed(tile_output_dir, tile_name):
             print(f"  ⊙ Skipped: Already processed (found all output files)")
             skipped_tiles.append(tile_name)
 
             # Load existing results for aggregation
             try:
-                # Read the existing results
-                interactions_df = pd.read_csv(tile_output_dir / 'significant_interactions.csv')
+                # Read the existing results with tile name prefix
+                interactions_df = pd.read_csv(tile_output_dir / f'{tile_name}_significant_interactions.csv')
                 adata = sc.read_h5ad(h5ad_path)
                 zscore = adata.uns[f'{cluster_key}_nhood_enrichment']['zscore'] if f'{cluster_key}_nhood_enrichment' in adata.uns else None
 
