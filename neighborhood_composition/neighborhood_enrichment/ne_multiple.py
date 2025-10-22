@@ -32,7 +32,10 @@ from ne_tiled import (
     compute_centrality_scores,
     visualize_enrichment,
     visualize_spatial_distribution,
-    summarize_interactions
+    summarize_interactions,
+    save_intermediate_results,
+    load_intermediate_results,
+    aggregate_from_saved_results
 )
 
 warnings.filterwarnings('ignore')
@@ -94,7 +97,9 @@ def is_tile_processed(output_dir, tile_name):
     expected_files = [
         f'{tile_name}_spatial_distribution.png',
         f'{tile_name}_neighborhood_enrichment.png',
-        f'{tile_name}_significant_interactions.csv'
+        f'{tile_name}_significant_interactions.csv',
+        f'{tile_name}_zscore.npy',         # Intermediate file for aggregation
+        f'{tile_name}_metadata.json'       # Intermediate metadata
     ]
 
     for filename in expected_files:
@@ -187,187 +192,27 @@ def process_single_tile(
     interactions_df = summarize_interactions(adata, cluster_key=cluster_key)
     interactions_df.to_csv(output_dir / f'{tile_name}_significant_interactions.csv', index=False)
 
+    # Save intermediate results for file-based aggregation (STEP 1)
+    save_intermediate_results(
+        adata=adata,
+        output_dir=output_dir,
+        tile_name=tile_name,
+        cluster_key=cluster_key
+    )
+
     # Save processed data if requested
     if save_adata:
         output_adata_path = output_dir / f'{tile_name}_adata_with_spatial_analysis.h5ad'
         adata.write(output_adata_path)
 
-    # Extract results
-    zscore = adata.uns[f'{cluster_key}_nhood_enrichment']['zscore']
-    cell_types = adata.obs[cluster_key].cat.categories.tolist()
-
+    # Return minimal summary (don't keep full adata in memory)
     results = {
-        'adata': adata,
-        'zscore': np.array(zscore),
-        'cell_types': cell_types,
-        'interactions': interactions_df,
-        'n_cells': adata.n_obs
+        'tile_name': tile_name,
+        'n_cells': adata.n_obs,
+        'n_interactions': len(interactions_df)
     }
 
     return results
-
-
-def aggregate_results_across_tiles(all_results, output_dir, cluster_key='cell_type'):
-    """
-    Aggregate and summarize results across all tiles.
-
-    Parameters:
-    -----------
-    all_results : dict
-        Dictionary mapping tile names to their results
-    output_dir : Path
-        Output directory for aggregated results
-    cluster_key : str
-        Key for cell type labels
-
-    Returns:
-    --------
-    aggregated : dict
-        Aggregated statistics across tiles
-    """
-    print("\n" + "=" * 70)
-    print("AGGREGATING RESULTS ACROSS ALL TILES")
-    print("=" * 70)
-
-    tile_names = list(all_results.keys())
-    n_tiles = len(tile_names)
-
-    # Get cell types from first tile
-    cell_types = all_results[tile_names[0]]['cell_types']
-    n_celltypes = len(cell_types)
-
-    # Collect z-scores from all tiles
-    zscores_list = []
-    for tile_name in tile_names:
-        zscores_list.append(all_results[tile_name]['zscore'])
-
-    zscores_array = np.stack(zscores_list)  # shape: (n_tiles, n_celltypes, n_celltypes)
-
-    # Calculate statistics
-    mean_zscore = zscores_array.mean(axis=0)
-    std_zscore = zscores_array.std(axis=0)
-    median_zscore = np.median(zscores_array, axis=0)
-    min_zscore = zscores_array.min(axis=0)
-    max_zscore = zscores_array.max(axis=0)
-
-    print(f"\nAggregated statistics computed from {n_tiles} tiles:")
-    print(f"  - Mean z-score range: [{mean_zscore.min():.2f}, {mean_zscore.max():.2f}]")
-    print(f"  - Mean std across tiles: {std_zscore.mean():.3f}")
-    print(f"  - Max std across tiles: {std_zscore.max():.3f}")
-
-    # Visualize aggregated results
-    print("\nGenerating aggregated visualizations...")
-
-    # Mean enrichment heatmap
-    fig, ax = plt.subplots(figsize=(10, 8))
-    max_abs_value = max(abs(mean_zscore.min()), abs(mean_zscore.max()))
-
-    sns.heatmap(
-        mean_zscore,
-        cmap='coolwarm',
-        center=0,
-        vmin=-np.ceil(max_abs_value),
-        vmax=np.ceil(max_abs_value),
-        annot=True,
-        fmt='.2f',
-        cbar_kws={'label': 'Mean Z-score'},
-        linewidths=0.5,
-        linecolor='white',
-        xticklabels=cell_types,
-        yticklabels=cell_types,
-        square=True,
-        ax=ax
-    )
-    ax.set_xlabel('Cell Type', fontsize=12)
-    ax.set_ylabel('Cell Type', fontsize=12)
-    ax.set_title(f'Aggregated Neighborhood Enrichment\n(Mean Z-score across {n_tiles} tiles)',
-                 fontsize=14, fontweight='bold', pad=20)
-    plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
-    plt.setp(ax.get_yticklabels(), rotation=0)
-    plt.tight_layout()
-    plt.savefig(output_dir / 'aggregated_mean_enrichment.png', dpi=300, bbox_inches='tight')
-    plt.close()
-
-    # Variability heatmap (std dev)
-    fig, ax = plt.subplots(figsize=(10, 8))
-    max_std = std_zscore.max()
-
-    sns.heatmap(
-        std_zscore,
-        cmap='YlOrRd',
-        vmin=0,
-        vmax=np.ceil(max_std),
-        annot=True,
-        fmt='.2f',
-        cbar_kws={'label': 'Standard Deviation'},
-        linewidths=0.5,
-        linecolor='white',
-        xticklabels=cell_types,
-        yticklabels=cell_types,
-        square=True,
-        ax=ax
-    )
-    ax.set_xlabel('Cell Type', fontsize=12)
-    ax.set_ylabel('Cell Type', fontsize=12)
-    ax.set_title(f'Variability Across Tiles\n(Std Dev of Z-scores, {n_tiles} tiles)',
-                 fontsize=14, fontweight='bold', pad=20)
-    plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
-    plt.setp(ax.get_yticklabels(), rotation=0)
-    plt.tight_layout()
-    plt.savefig(output_dir / 'aggregated_variability.png', dpi=300, bbox_inches='tight')
-    plt.close()
-
-    print(f"  - Saved aggregated_mean_enrichment.png")
-    print(f"  - Saved aggregated_variability.png")
-
-    # Save aggregated statistics as CSV
-    mean_df = pd.DataFrame(mean_zscore, index=cell_types, columns=cell_types)
-    mean_df.to_csv(output_dir / 'aggregated_mean_zscore.csv')
-
-    std_df = pd.DataFrame(std_zscore, index=cell_types, columns=cell_types)
-    std_df.to_csv(output_dir / 'aggregated_std_zscore.csv')
-
-    median_df = pd.DataFrame(median_zscore, index=cell_types, columns=cell_types)
-    median_df.to_csv(output_dir / 'aggregated_median_zscore.csv')
-
-    print(f"  - Saved aggregated statistics CSVs")
-
-    # Aggregate interactions
-    print("\nAggregating significant interactions across tiles...")
-    all_interactions = []
-    for tile_name, results in all_results.items():
-        tile_interactions = results['interactions'].copy()
-        tile_interactions['Tile'] = tile_name
-        all_interactions.append(tile_interactions)
-
-    combined_interactions = pd.concat(all_interactions, ignore_index=True)
-    combined_interactions.to_csv(output_dir / 'all_tiles_interactions.csv', index=False)
-    print(f"  - Saved all_tiles_interactions.csv ({len(combined_interactions)} total interactions)")
-
-    # Summary of consistent interactions
-    interaction_counts = combined_interactions.groupby(['Cell Type 1', 'Cell Type 2', 'Interaction']).size()
-    interaction_counts = interaction_counts.reset_index(name='Count')
-    interaction_counts['Frequency'] = interaction_counts['Count'] / n_tiles
-    interaction_counts = interaction_counts.sort_values('Count', ascending=False)
-    interaction_counts.to_csv(output_dir / 'interaction_consistency.csv', index=False)
-
-    print(f"  - Saved interaction_consistency.csv")
-    print(f"\nMost consistent interactions (present in multiple tiles):")
-    print(interaction_counts.head(10).to_string(index=False))
-
-    aggregated = {
-        'mean_zscore': mean_zscore,
-        'std_zscore': std_zscore,
-        'median_zscore': median_zscore,
-        'min_zscore': min_zscore,
-        'max_zscore': max_zscore,
-        'cell_types': cell_types,
-        'n_tiles': n_tiles,
-        'combined_interactions': combined_interactions,
-        'interaction_consistency': interaction_counts
-    }
-
-    return aggregated
 
 
 def run_multiple_tiles_pipeline(
@@ -429,8 +274,8 @@ def run_multiple_tiles_pipeline(
     print(f"PROCESSING {n_tiles} TILES")
     print("=" * 70)
 
-    # Process each tile
-    all_results = {}
+    # Process each tile (memory-efficient - don't store in RAM)
+    successful_tiles = []
     failed_tiles = []
     skipped_tiles = []
 
@@ -444,33 +289,8 @@ def run_multiple_tiles_pipeline(
         if is_tile_processed(tile_output_dir, tile_name):
             print(f"  ⊙ Skipped: Already processed (found all output files)")
             skipped_tiles.append(tile_name)
-
-            # Load existing results for aggregation
-            try:
-                # Read the existing results with tile name prefix
-                interactions_df = pd.read_csv(tile_output_dir / f'{tile_name}_significant_interactions.csv')
-                adata = sc.read_h5ad(h5ad_path)
-                zscore = adata.uns[f'{cluster_key}_nhood_enrichment']['zscore'] if f'{cluster_key}_nhood_enrichment' in adata.uns else None
-
-                # If zscore not in original file, we need to recompute (skip for now)
-                if zscore is None:
-                    print(f"  ⚠ Warning: Could not load zscore from existing data, will reprocess")
-                    # Remove from skipped and continue to process
-                    skipped_tiles.remove(tile_name)
-                else:
-                    cell_types = adata.obs[cluster_key].cat.categories.tolist()
-                    results = {
-                        'adata': adata,
-                        'zscore': np.array(zscore),
-                        'cell_types': cell_types,
-                        'interactions': interactions_df,
-                        'n_cells': adata.n_obs
-                    }
-                    all_results[tile_name] = results
-                    continue
-            except Exception as e:
-                print(f"  ⚠ Warning: Could not load existing results ({e}), will reprocess")
-                skipped_tiles.remove(tile_name)
+            successful_tiles.append(tile_name)  # Count as successful for aggregation
+            continue
 
         try:
             results = process_single_tile(
@@ -484,8 +304,8 @@ def run_multiple_tiles_pipeline(
                 skip_cooccurrence=skip_cooccurrence,
                 max_cells_for_cooccurrence=max_cells_for_cooccurrence
             )
-            all_results[tile_name] = results
-            print(f"  ✓ Success: {results['n_cells']} cells, {len(results['interactions'])} significant interactions")
+            successful_tiles.append(tile_name)
+            print(f"  ✓ Success: {results['n_cells']} cells, {results['n_interactions']} significant interactions")
 
         except Exception as e:
             print(f"  ✗ Failed: {e}")
@@ -497,7 +317,7 @@ def run_multiple_tiles_pipeline(
     print("PROCESSING SUMMARY")
     print("=" * 70)
     print(f"  - Total tiles: {n_tiles}")
-    print(f"  - Successfully processed: {len(all_results)}")
+    print(f"  - Successfully processed: {len(successful_tiles)}")
     print(f"  - Skipped (already processed): {len(skipped_tiles)}")
     print(f"  - Failed: {len(failed_tiles)}")
 
@@ -513,30 +333,45 @@ def run_multiple_tiles_pipeline(
         for tile_name, error in failed_tiles:
             print(f"  - {tile_name}: {error}")
 
-    if len(all_results) == 0:
+    if len(successful_tiles) == 0:
         raise RuntimeError("All tiles failed to process!")
 
-    # Aggregate results
-    aggregated = aggregate_results_across_tiles(
-        all_results,
-        output_dir,
-        cluster_key=cluster_key
+    # STEP 2: Aggregate results from disk (memory-efficient)
+    print("\n" + "=" * 70)
+    print("FILE-BASED AGGREGATION (STEP 2)")
+    print("=" * 70)
+
+    # Collect tile directories for aggregation
+    tile_dirs = [output_dir / tile_name for tile_name in successful_tiles]
+
+    aggregated = aggregate_from_saved_results(
+        tile_dirs=tile_dirs,
+        output_dir=output_dir,
+        tile_names=successful_tiles
     )
 
-    # Create summary report
+    # Create summary report from saved metadata
     print("\n" + "=" * 70)
     print("CREATING SUMMARY REPORT")
     print("=" * 70)
 
     summary_data = []
-    for tile_name, results in all_results.items():
-        summary_data.append({
-            'Tile': tile_name,
-            'N_Cells': results['n_cells'],
-            'N_Significant_Interactions': len(results['interactions']),
-            'Mean_Abs_Zscore': np.abs(results['zscore']).mean(),
-            'Max_Abs_Zscore': np.abs(results['zscore']).max()
-        })
+    for tile_name in successful_tiles:
+        tile_dir = output_dir / tile_name
+        try:
+            # Load metadata from saved files
+            metadata_result = load_intermediate_results(tile_dir, tile_name=tile_name)
+            interactions_df = pd.read_csv(tile_dir / f'{tile_name}_significant_interactions.csv')
+
+            summary_data.append({
+                'Tile': tile_name,
+                'N_Cells': metadata_result['n_cells'],
+                'N_Significant_Interactions': len(interactions_df),
+                'Mean_Abs_Zscore': metadata_result['metadata']['mean_abs_zscore'],
+                'Max_Abs_Zscore': metadata_result['metadata']['max_abs_zscore']
+            })
+        except Exception as e:
+            print(f"  ⚠ Warning: Could not load summary for {tile_name}: {e}")
 
     summary_df = pd.DataFrame(summary_data)
     summary_df = summary_df.sort_values('N_Cells', ascending=False)
@@ -546,12 +381,39 @@ def run_multiple_tiles_pipeline(
     print(summary_df.to_string(index=False))
     print(f"\n  - Saved tiles_summary.csv")
 
+    # Aggregate interactions from CSVs
+    print("\nAggregating interaction CSVs...")
+    all_interactions = []
+    for tile_name in successful_tiles:
+        tile_dir = output_dir / tile_name
+        interactions_csv = tile_dir / f'{tile_name}_significant_interactions.csv'
+        if interactions_csv.exists():
+            tile_interactions = pd.read_csv(interactions_csv)
+            tile_interactions['Tile'] = tile_name
+            all_interactions.append(tile_interactions)
+
+    if all_interactions:
+        combined_interactions = pd.concat(all_interactions, ignore_index=True)
+        combined_interactions.to_csv(output_dir / 'all_tiles_interactions.csv', index=False)
+
+        # Interaction consistency
+        interaction_counts = combined_interactions.groupby(['Cell Type 1', 'Cell Type 2', 'Interaction']).size()
+        interaction_counts = interaction_counts.reset_index(name='Count')
+        interaction_counts['Frequency'] = interaction_counts['Count'] / len(successful_tiles)
+        interaction_counts = interaction_counts.sort_values('Count', ascending=False)
+        interaction_counts.to_csv(output_dir / 'interaction_consistency.csv', index=False)
+
+        print(f"  - Saved all_tiles_interactions.csv ({len(combined_interactions)} total interactions)")
+        print(f"  - Saved interaction_consistency.csv")
+        print(f"\nMost consistent interactions (present in multiple tiles):")
+        print(interaction_counts.head(10).to_string(index=False))
+
     # Final results
     results = {
-        'all_results': all_results,
         'aggregated': aggregated,
         'summary': summary_df,
         'failed_tiles': failed_tiles,
+        'successful_tiles': successful_tiles,
         'parameters': {
             'n_tiles': n_tiles,
             'radius': radius,
