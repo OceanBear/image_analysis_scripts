@@ -471,8 +471,9 @@ def visualize_bootstrap_enrichment(
         cbar_kws={'label': 'Mean Z-score (Bootstrap)'},
         linewidths=0.5,
         linecolor='white',
+        square=True,
         ax=ax,
-        annot_kws={'fontsize': 8}
+        #annot_kws={'fontsize': 8}
     )
 
     ax.set_xlabel('Cell Type', fontsize=12)
@@ -500,18 +501,18 @@ def visualize_bootstrap_comparison(
     bootstrap_results,
     standard_zscore,
     cell_types,
-    figsize=(18, 6),
+    figsize=(10, 8),
     save_path=None
 ):
     """
-    Create side-by-side comparison of bootstrap and standard permutation results.
+    Visualize bootstrap uncertainty (standard deviation across iterations).
 
     Parameters:
     -----------
     bootstrap_results : dict
         Results from bootstrap analysis
     standard_zscore : array
-        Z-scores from standard permutation
+        Z-scores from standard permutation (unused, kept for compatibility)
     cell_types : list
         List of cell type names
     figsize : tuple
@@ -519,71 +520,44 @@ def visualize_bootstrap_comparison(
     save_path : str, optional
         Path to save figure
     """
-    print("\nCreating bootstrap vs. standard comparison plot...")
+    print("\nVisualizing bootstrap uncertainty...")
 
-    mean_zscore = bootstrap_results['mean_zscore']
     std_zscore = bootstrap_results['std_zscore']
 
-    fig, axes = plt.subplots(1, 3, figsize=figsize)
+    # Calculate auto-scale based on extreme values
+    max_value = std_zscore.max()
+    vmin, vmax = 0, np.ceil(max_value)
 
-    # Plot 1: Standard permutation
-    sns.heatmap(
-        standard_zscore,
-        cmap='coolwarm',
-        center=0,
-        vmin=-3,
-        vmax=3,
-        cbar_kws={'label': 'Z-score'},
-        linewidths=0.5,
-        linecolor='white',
-        ax=axes[0],
-        xticklabels=cell_types,
-        yticklabels=cell_types
-    )
-    axes[0].set_title('Standard Permutation\n(All Tiles)', fontsize=12, fontweight='bold')
-    axes[0].set_xlabel('Cell Type', fontsize=10)
-    axes[0].set_ylabel('Cell Type', fontsize=10)
-    plt.setp(axes[0].get_xticklabels(), rotation=45, ha='right', fontsize=9)
-    plt.setp(axes[0].get_yticklabels(), rotation=0, fontsize=9)
+    print(f"  - Std Dev range: [0.00, {max_value:.2f}]")
+    print(f"  - Color scale: [0, {vmax:.0f}]")
 
-    # Plot 2: Bootstrap mean
-    sns.heatmap(
-        mean_zscore,
-        cmap='coolwarm',
-        center=0,
-        vmin=-3,
-        vmax=3,
-        cbar_kws={'label': 'Mean Z-score'},
-        linewidths=0.5,
-        linecolor='white',
-        ax=axes[1],
-        xticklabels=cell_types,
-        yticklabels=cell_types
-    )
-    axes[1].set_title(f'Bootstrap Mean\n({bootstrap_results["n_bootstrap"]} iterations)',
-                      fontsize=12, fontweight='bold')
-    axes[1].set_xlabel('Cell Type', fontsize=10)
-    axes[1].set_ylabel('Cell Type', fontsize=10)
-    plt.setp(axes[1].get_xticklabels(), rotation=45, ha='right', fontsize=9)
-    plt.setp(axes[1].get_yticklabels(), rotation=0, fontsize=9)
+    # Create figure
+    fig, ax = plt.subplots(figsize=figsize)
 
-    # Plot 3: Bootstrap uncertainty (std)
+    # Create heatmap with annotations
     sns.heatmap(
         std_zscore,
         cmap='YlOrRd',
-        cbar_kws={'label': 'Std Dev'},
+        vmin=vmin,
+        vmax=vmax,
+        cbar_kws={'label': 'Standard Deviation'},
+        annot=True,  # Show values in cells
+        fmt='.2f',   # Format to 2 decimal places
         linewidths=0.5,
         linecolor='white',
-        ax=axes[2],
         xticklabels=cell_types,
-        yticklabels=cell_types
+        yticklabels=cell_types,
+        square=True,
+        ax=ax
     )
-    axes[2].set_title('Bootstrap Uncertainty\n(Std Dev across iterations)',
-                      fontsize=12, fontweight='bold')
-    axes[2].set_xlabel('Cell Type', fontsize=10)
-    axes[2].set_ylabel('Cell Type', fontsize=10)
-    plt.setp(axes[2].get_xticklabels(), rotation=45, ha='right', fontsize=9)
-    plt.setp(axes[2].get_yticklabels(), rotation=0, fontsize=9)
+
+    ax.set_xlabel('Cell Type', fontsize=12)
+    ax.set_ylabel('Cell Type', fontsize=12)
+    ax.set_title('Bootstrap Uncertainty\n(Std Dev across iterations)',
+                 fontsize=14, fontweight='bold', pad=20)
+
+    plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+    plt.setp(ax.get_yticklabels(), rotation=0)
 
     plt.tight_layout()
 
@@ -786,12 +760,12 @@ def run_bootstrap_pipeline(
         save_path=output_dir / 'bootstrap_enrichment_with_ci.png'
     )
 
-    # Comparison plot
+    # Bootstrap uncertainty plot
     visualize_bootstrap_comparison(
         bootstrap_results,
         comparison['standard_zscore'],
         bootstrap_results['cell_types'],
-        save_path=output_dir / 'bootstrap_vs_standard_comparison.png'
+        save_path=output_dir / 'bootstrap_uncertainty.png'
     )
 
     # Step 4: Summarize Interactions

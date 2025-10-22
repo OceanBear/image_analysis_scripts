@@ -203,17 +203,52 @@ def visualize_enrichment(adata, cluster_key='cell_type', figsize=(10, 8), save_p
 
     print(f"\nVisualizing neighborhood enrichment...")
 
-    fig, ax = plt.subplots(figsize=figsize)
+    # Get z-scores to calculate dynamic scale
+    zscore = adata.uns[f'{cluster_key}_nhood_enrichment']['zscore']
+    if isinstance(zscore, pd.DataFrame):
+        zscore_array = zscore.values
+    else:
+        zscore_array = np.array(zscore)
 
-    sq.pl.nhood_enrichment(
-        adata,
-        cluster_key=cluster_key,
-        method='ward',
+    # Calculate symmetric scale based on actual data range
+    max_abs_z = np.abs(zscore_array).max()
+    vmin, vmax = -max_abs_z, max_abs_z
+
+    print(f"  - Z-score range: [{zscore_array.min():.2f}, {zscore_array.max():.2f}]")
+    print(f"  - Color scale: [{vmin:.2f}, {vmax:.2f}]")
+
+    fig, ax = plt.subplots(figsize=figsize)
+    max_abs_value = max(abs(vmin), abs(vmax))
+
+    # Get cell type names for labels
+    cell_types = adata.obs[cluster_key].cat.categories.tolist()
+
+    # Use seaborn directly to show annotations
+    sns.heatmap(
+        zscore,
         cmap='coolwarm',
-        vmin=-3,
-        vmax=3,
+        center=0,
+        vmin=-np.ceil(max_abs_value),
+        vmax=np.ceil(max_abs_value),
+        annot=True,  # Show values in cells
+        fmt='.2f',   # Format to 2 decimal places
+        cbar_kws={'label': 'Z-score'},
+        linewidths=0.5,
+        linecolor='white',
+        #xticklabels=cell_types,
+        #yticklabels=cell_types,
+        square=True,
         ax=ax
     )
+    ax.set_xlabel('Cell Type', fontsize=12)
+    ax.set_ylabel('Cell Type', fontsize=12)
+    ax.set_title('Neighborhood Enrichment Analysis\n'
+                 '(Mean Z-score)',
+                 fontsize=14, fontweight='bold', pad=20)
+
+    # Set tick labels
+    ax.set_xticklabels(cell_types, rotation=45, ha='right')
+    ax.set_yticklabels(cell_types, rotation=0)
 
     plt.tight_layout()
 

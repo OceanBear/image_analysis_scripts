@@ -456,15 +456,15 @@ def run_bootstrap_wsi_pipeline(
     visualize_bootstrap_enrichment(
         bootstrap_results,
         cluster_key=cluster_key,
-        save_path=output_dir / 'bootstrap_enrichment_with_ci.png'
+        save_path=output_dir / 'bootstrap_enrichment_with_ci_wsi.png'
     )
 
-    # Comparison plot
+    # Bootstrap uncertainty plot
     visualize_bootstrap_comparison(
         bootstrap_results,
         comparison['standard_zscore'],
         bootstrap_results['cell_types'],
-        save_path=output_dir / 'bootstrap_vs_standard_comparison.png'
+        save_path=output_dir / 'bootstrap_uncertainty_wsi.png'
     )
 
     # Spatial distribution (using separate visualization subsample)
@@ -477,7 +477,7 @@ def run_bootstrap_wsi_pipeline(
     visualize_spatial_distribution(
         adata_vis,
         cluster_key=cluster_key,
-        save_path=output_dir / 'spatial_distribution.png',
+        save_path=output_dir / 'spatial_distribution_wsi.png',
         size=1,
         figsize=(16, 14)
     )
@@ -494,10 +494,10 @@ def run_bootstrap_wsi_pipeline(
         threshold_ci=True
     )
     bootstrap_interactions.to_csv(
-        output_dir / 'bootstrap_significant_interactions.csv',
+        output_dir / 'bootstrap_significant_interactions_wsi.csv',
         index=False
     )
-    print(f"\n  - Saved bootstrap interactions to: {output_dir / 'bootstrap_significant_interactions.csv'}")
+    print(f"\n  - Saved bootstrap interactions to: {output_dir / 'bootstrap_significant_interactions_wsi.csv'}")
 
     # Standard interactions (for comparison)
     print("\n" + "=" * 70)
@@ -505,10 +505,10 @@ def run_bootstrap_wsi_pipeline(
     print("=" * 70)
     standard_interactions = summarize_interactions(adata_standard, cluster_key=cluster_key)
     standard_interactions.to_csv(
-        output_dir / 'standard_significant_interactions.csv',
+        output_dir / 'standard_significant_interactions_wsi.csv',
         index=False
     )
-    print(f"\n  - Saved standard interactions to: {output_dir / 'standard_significant_interactions.csv'}")
+    print(f"\n  - Saved standard interactions to: {output_dir / 'standard_significant_interactions_wsi.csv'}")
 
     # Step 6: Save Results
     print("\n" + "=" * 70)
@@ -524,7 +524,7 @@ def run_bootstrap_wsi_pipeline(
         index=cell_types,
         columns=cell_types
     )
-    mean_df.to_csv(output_dir / 'bootstrap_mean_zscore.csv')
+    mean_df.to_csv(output_dir / 'bootstrap_mean_zscore_wsi.csv')
 
     # Standard deviations
     std_df = pd.DataFrame(
@@ -532,7 +532,7 @@ def run_bootstrap_wsi_pipeline(
         index=cell_types,
         columns=cell_types
     )
-    std_df.to_csv(output_dir / 'bootstrap_std_zscore.csv')
+    std_df.to_csv(output_dir / 'bootstrap_std_zscore_wsi.csv')
 
     # Confidence intervals
     ci_lower_df = pd.DataFrame(
@@ -540,14 +540,14 @@ def run_bootstrap_wsi_pipeline(
         index=cell_types,
         columns=cell_types
     )
-    ci_lower_df.to_csv(output_dir / 'bootstrap_ci_lower.csv')
+    ci_lower_df.to_csv(output_dir / 'bootstrap_ci_lower_wsi.csv')
 
     ci_upper_df = pd.DataFrame(
         bootstrap_results['ci_upper'],
         index=cell_types,
         columns=cell_types
     )
-    ci_upper_df.to_csv(output_dir / 'bootstrap_ci_upper.csv')
+    ci_upper_df.to_csv(output_dir / 'bootstrap_ci_upper_wsi.csv')
 
     # Comparison metrics
     comparison_df = pd.DataFrame([{
@@ -555,7 +555,7 @@ def run_bootstrap_wsi_pipeline(
         'max_absolute_difference': comparison['max_absolute_difference'],
         'correlation': comparison['correlation']
     }])
-    comparison_df.to_csv(output_dir / 'bootstrap_vs_standard_comparison.csv', index=False)
+    comparison_df.to_csv(output_dir / 'bootstrap_vs_standard_comparison_wsi.csv', index=False)
 
     print(f"\n  - Saved all results to: {output_dir}/")
 
@@ -669,7 +669,7 @@ WHEN TO USE BOOTSTRAP FOR WSI:
 ✓ Critical when making statistical claims about entire WSI
 
 VALIDATION:
-- Check validation_celltype_distribution.png for subsample quality
+- Check validation_celltype_distribution_wsi.png for subsample quality
 - If subsampling is poor, increase n_cells_per_bootstrap
 - If bootstrap CI are very wide, tissue may be highly heterogeneous
 """)
@@ -678,20 +678,20 @@ VALIDATION:
     print("NEXT STEPS")
     print("=" * 70)
     print(f"""
-1. Review validation plot: {output_dir}/validation_celltype_distribution.png
+1. Review validation plot: {output_dir}/validation_celltype_distribution_wsi.png
    - Ensure subsamples represent full WSI well
 
-2. Check bootstrap enrichment: {output_dir}/bootstrap_enrichment_with_ci.png
+2. Check bootstrap enrichment: {output_dir}/bootstrap_enrichment_with_ci_wsi.png
    - Look for interactions where CI excludes zero
 
-3. Compare methods: {output_dir}/bootstrap_vs_standard_comparison.png
+3. Compare methods: {output_dir}/bootstrap_vs_standard_comparison_wsi.png
    - Left: Single subsample result (what you'd get from standard analysis)
    - Middle: Bootstrap mean (more robust estimate)
    - Right: Bootstrap uncertainty (shows regional variability)
 
 4. Significant interactions:
-   - {output_dir}/bootstrap_significant_interactions.csv (with CI)
-   - {output_dir}/standard_significant_interactions.csv (for comparison)
+   - {output_dir}/bootstrap_significant_interactions_wsi.csv (with CI)
+   - {output_dir}/standard_significant_interactions_wsi.csv (for comparison)
 
 5. Adjust parameters if needed:
    - Increase n_cells_per_bootstrap if subsamples are not representative
