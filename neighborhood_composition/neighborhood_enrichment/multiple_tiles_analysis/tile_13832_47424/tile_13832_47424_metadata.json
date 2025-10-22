@@ -1,0 +1,20 @@
+{
+  "tile_name": "tile_13832_47424",
+  "n_cells": 1017,
+  "cell_types": [
+    "Undefined",
+    "Epithelium (PD-L1lo/Ki67lo)",
+    "Epithelium (PD-L1hi/Ki67hi)",
+    "Macrophage",
+    "Lymphocyte",
+    "Vascular",
+    "Fibroblast/Stroma"
+  ],
+  "cluster_key": "cell_type",
+  "zscore_shape": [
+    7,
+    7
+  ],
+  "mean_abs_zscore": 3.2444662837354183,
+  "max_abs_zscore": 17.238886069118767
+}
