@@ -6,6 +6,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
 
+# from dask.tests.test_config import no_read_permissions
+# from networkx.algorithms.distance_measures import radius
+
 
 def load_and_apply_cell_type_colors(adata, celltype_key='cell_type'):
     """Convert hex colors from h5ad to matplotlib RGB tuples."""
@@ -185,7 +188,7 @@ def compute_centrality_scores(adata, cluster_key='cell_type'):
     return adata
 
 
-def visualize_enrichment(adata, cluster_key='cell_type', figsize=(10, 8), save_path=None):
+def visualize_enrichment(adata, cluster_key='cell_type', figsize=(10, 8), save_path=None, radius=None, n_perms=None):
     """
     Visualize neighborhood enrichment as a heatmap.
 
@@ -199,6 +202,10 @@ def visualize_enrichment(adata, cluster_key='cell_type', figsize=(10, 8), save_p
         Figure size
     save_path : str, optional
         Path to save figure
+    radius : float, optional
+        Radius used for spatial graph (displayed in title)
+    n_perms : int, optional
+        Number of permutations used (displayed in title)
     """
 
     print(f"\nVisualizing neighborhood enrichment...")
@@ -242,9 +249,18 @@ def visualize_enrichment(adata, cluster_key='cell_type', figsize=(10, 8), save_p
     )
     ax.set_xlabel('Cell Type', fontsize=12)
     ax.set_ylabel('Cell Type', fontsize=12)
-    ax.set_title('Neighborhood Enrichment Analysis\n'
-                 '(Mean Z-score)',
-                 fontsize=14, fontweight='bold', pad=20)
+
+    # Build title with optional radius and n_perms
+    title = 'Neighborhood Enrichment Analysis\n(Mean Z-score)'
+    if radius is not None or n_perms is not None:
+        params = []
+        if radius is not None:
+            params.append(f'radius={radius}')
+        if n_perms is not None:
+            params.append(f'n_perms={n_perms}')
+        title += f'\n({", ".join(params)})'
+
+    ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
 
     # Set tick labels
     ax.set_xticklabels(cell_types, rotation=45, ha='right')
@@ -483,7 +499,9 @@ def run_spatial_analysis_pipeline(adata_path, output_dir='spatial_analysis_resul
     # Enrichment heatmap
     visualize_enrichment(
         adata,
-        save_path=output_dir / 'neighborhood_enrichment.png'
+        save_path=output_dir / 'neighborhood_enrichment.png',
+        radius=radius,
+        n_perms=n_perms
     )
 
     # Step 6: Summarize interactions
@@ -517,7 +535,7 @@ if __name__ == "__main__":
     adata = run_spatial_analysis_pipeline(
         adata_path=adata_path,
         output_dir='spatial_analysis_results',
-        radius=20,  # Adjust based on your tissue/magnification
+        radius=50,  # Adjust based on your tissue/magnification
         n_perms=1000,
         save_adata=False,  # Set to True to save the h5ad file
         skip_cooccurrence=False,  # Set to True to skip co-occurrence for large datasets
