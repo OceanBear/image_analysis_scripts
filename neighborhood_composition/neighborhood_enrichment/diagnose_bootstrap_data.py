@@ -8,6 +8,10 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 import json
+import os
+from pathlib import Path
+# Set the working directory to the script's directory
+os.chdir(Path(__file__).parent)
 
 def diagnose_single_tile(tile_dir):
     """Diagnose a single tile's bootstrap results."""

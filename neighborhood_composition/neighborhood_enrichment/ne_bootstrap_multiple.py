@@ -29,6 +29,10 @@ import scanpy as sc
 from pathlib import Path
 from typing import Optional, List, Dict
 import warnings
+from pathlib import Path
+import os
+# Set the working directory to the script's directory
+os.chdir(Path(__file__).parent)
 
 # Import functions from ne_bootstrap_tiled
 from ne_bootstrap_tiled import (

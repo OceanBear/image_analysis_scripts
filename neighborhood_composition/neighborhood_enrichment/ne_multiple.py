@@ -23,6 +23,10 @@ from pathlib import Path
 from typing import Optional, List, Dict
 from tqdm import tqdm
 import warnings
+import os
+from pathlib import Path
+# Set the working directory to the script's directory
+os.chdir(Path(__file__).parent)
 
 # Import functions from ne_tiled.py
 from ne_tiled import (

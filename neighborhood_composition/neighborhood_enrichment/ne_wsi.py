@@ -5,6 +5,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
+# Set the working directory to the script's directory
+os.chdir(Path(__file__).parent)
 from ne_tiled import (
     load_and_apply_cell_type_colors,
     build_spatial_graph,

@@ -6,6 +6,9 @@ import numpy as np
 import scanpy as sc
 import squidpy as sq
 from pathlib import Path
+import os
+# Set the working directory to the script's directory
+os.chdir(Path(__file__).parent)
 
 # Load one of your processed tiles
 tile_dirs = sorted(Path('neighborhood_composition/neighborhood_enrichment/multiple_tiles_analysis').glob('tile_*'))

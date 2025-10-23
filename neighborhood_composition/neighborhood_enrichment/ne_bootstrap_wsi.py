@@ -29,6 +29,10 @@ from pathlib import Path
 from typing import Optional, Tuple, Dict, List
 from tqdm import tqdm
 import warnings
+import os
+from pathlib import Path
+# Set the working directory to the script's directory
+os.chdir(Path(__file__).parent)
 
 # Import reusable functions from existing modules
 from ne_tiled import (

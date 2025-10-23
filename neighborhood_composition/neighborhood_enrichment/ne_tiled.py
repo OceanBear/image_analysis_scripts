@@ -5,6 +5,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
+# Set the working directory to the script's directory
+os.chdir(Path(__file__).parent)
 
 # from dask.tests.test_config import no_read_permissions
 # from networkx.algorithms.distance_measures import radius
