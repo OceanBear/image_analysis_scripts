@@ -856,6 +856,7 @@ def run_bootstrap_pipeline(
     n_perms_standard=1000,
     cluster_key='cell_type',
     save_adata=False,
+    save_matrix_csvs=False,
     seed=42
 ):
     """
@@ -888,6 +889,9 @@ def run_bootstrap_pipeline(
         Key for cell type labels
     save_adata : bool, default=False
         Whether to save processed data
+    save_matrix_csvs : bool, default=False
+        Whether to save full matrix CSVs (mean, std, CI). If False, only saves
+        bootstrap_significant_interactions.csv which contains the key results.
     seed : int, default=42
         Random seed for reproducibility
 
@@ -1007,41 +1011,52 @@ def run_bootstrap_pipeline(
     print("STEP 5: SAVING RESULTS")
     print("=" * 70)
 
-    # Save bootstrap statistics
-    cell_types = bootstrap_results['cell_types']
+    # Save bootstrap statistics (optional, contains duplicate info with interactions CSV)
+    if save_matrix_csvs:
+        cell_types = bootstrap_results['cell_types']
 
-    # Mean z-scores
-    mean_df = pd.DataFrame(
-        bootstrap_results['mean_zscore'],
-        index=cell_types,
-        columns=cell_types
-    )
-    mean_df.to_csv(output_dir / 'bootstrap_mean_zscore.csv')
+        print("\n  - Saving full matrix CSVs...")
 
-    # Standard deviations
-    std_df = pd.DataFrame(
-        bootstrap_results['std_zscore'],
-        index=cell_types,
-        columns=cell_types
-    )
-    std_df.to_csv(output_dir / 'bootstrap_std_zscore.csv')
+        # Mean z-scores
+        mean_df = pd.DataFrame(
+            bootstrap_results['mean_zscore'],
+            index=cell_types,
+            columns=cell_types
+        )
+        mean_df.to_csv(output_dir / 'bootstrap_mean_zscore.csv')
 
-    # Confidence intervals
-    ci_lower_df = pd.DataFrame(
-        bootstrap_results['ci_lower'],
-        index=cell_types,
-        columns=cell_types
-    )
-    ci_lower_df.to_csv(output_dir / 'bootstrap_ci_lower.csv')
+        # Standard deviations
+        std_df = pd.DataFrame(
+            bootstrap_results['std_zscore'],
+            index=cell_types,
+            columns=cell_types
+        )
+        std_df.to_csv(output_dir / 'bootstrap_std_zscore.csv')
 
-    ci_upper_df = pd.DataFrame(
-        bootstrap_results['ci_upper'],
-        index=cell_types,
-        columns=cell_types
-    )
-    ci_upper_df.to_csv(output_dir / 'bootstrap_ci_upper.csv')
+        # Confidence intervals
+        ci_lower_df = pd.DataFrame(
+            bootstrap_results['ci_lower'],
+            index=cell_types,
+            columns=cell_types
+        )
+        ci_lower_df.to_csv(output_dir / 'bootstrap_ci_lower.csv')
 
-    # Comparison metrics
+        ci_upper_df = pd.DataFrame(
+            bootstrap_results['ci_upper'],
+            index=cell_types,
+            columns=cell_types
+        )
+        ci_upper_df.to_csv(output_dir / 'bootstrap_ci_upper.csv')
+
+        print(f"    • bootstrap_mean_zscore.csv")
+        print(f"    • bootstrap_std_zscore.csv")
+        print(f"    • bootstrap_ci_lower.csv")
+        print(f"    • bootstrap_ci_upper.csv")
+    else:
+        print("\n  - Skipping matrix CSVs (set save_matrix_csvs=True to enable)")
+        print("    Key results are in bootstrap_significant_interactions.csv")
+
+    # Comparison metrics (always save)
     comparison_df = pd.DataFrame([{
         'mean_absolute_difference': comparison['mean_absolute_difference'],
         'max_absolute_difference': comparison['max_absolute_difference'],
@@ -1049,7 +1064,7 @@ def run_bootstrap_pipeline(
     }])
     comparison_df.to_csv(output_dir / 'bootstrap_vs_standard_comparison.csv', index=False)
 
-    print(f"\n  - Saved all results to: {output_dir}/")
+    print(f"\n  - Saved results to: {output_dir}/")
 
     # Save AnnData if requested
     if save_adata:
