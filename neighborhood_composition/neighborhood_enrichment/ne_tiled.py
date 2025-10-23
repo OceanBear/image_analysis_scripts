@@ -819,8 +819,7 @@ if __name__ == "__main__":
     # current_dir = os.path.dirname(__file__)
     # parent_dir = os.path.dirname(current_dir)
     # adata_path = os.path.join(parent_dir, "tile_39520_7904.h5ad")
-    adata_path = '../tile_39520_7904.h5ad'
-
+    adata_path = '/mnt/c/ProgramData/github_repo/image_analysis_scripts/neighborhood_composition/tile_39520_7904.h5ad'
     adata = run_spatial_analysis_pipeline(
         adata_path=adata_path,
         output_dir='spatial_analysis_results',
