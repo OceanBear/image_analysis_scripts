@@ -123,15 +123,36 @@ def aggregate_bootstrap_results_from_tiles(
             results = load_bootstrap_intermediate_results(tile_dir, tile_name=tile_name)
 
             # Get the full bootstrap array (n_bootstrap, n_celltypes, n_celltypes)
-            all_zscores.append(results['zscores'])
-            all_metadata.append(results['metadata'])
-            actual_tile_names.append(results['tile_name'] or tile_dir.name)
+            zscores = results['zscores']
+            metadata = results['metadata']
 
+            # Validate data
             print(f"  [{i+1}/{len(tile_dirs)}] Loaded: {results['tile_name'] or tile_dir.name} "
                   f"({results['n_bootstrap']} bootstrap iterations)")
+            print(f"      Shape: {zscores.shape}, "
+                  f"Z-score range: [{np.nanmin(zscores):.2f}, {np.nanmax(zscores):.2f}]")
+
+            # Check for compatibility with first tile
+            if len(all_metadata) > 0:
+                first_celltypes = set(all_metadata[0]['cell_types'])
+                current_celltypes = set(metadata['cell_types'])
+                if first_celltypes != current_celltypes:
+                    missing = first_celltypes - current_celltypes
+                    extra = current_celltypes - first_celltypes
+                    print(f"      [!] Warning: Cell type mismatch with first tile!")
+                    if missing:
+                        print(f"          Missing: {missing}")
+                    if extra:
+                        print(f"          Extra: {extra}")
+
+            all_zscores.append(zscores)
+            all_metadata.append(metadata)
+            actual_tile_names.append(results['tile_name'] or tile_dir.name)
 
         except Exception as e:
             print(f"  [!] Warning: Could not load {tile_dir}: {e}")
+            import traceback
+            traceback.print_exc()
             continue
 
     if len(all_zscores) == 0:
@@ -152,22 +173,51 @@ def aggregate_bootstrap_results_from_tiles(
     print(f"  - From {len(all_zscores)} tiles")
     print(f"  - Cell types: {n_celltypes}")
 
-    # Compute aggregated statistics
+    # Compute aggregated statistics (using nanmean/nanstd to handle missing values)
     print(f"\nComputing aggregated statistics...")
-    mean_zscore = pooled_zscores.mean(axis=0)
-    std_zscore = pooled_zscores.std(axis=0)
-    median_zscore = np.median(pooled_zscores, axis=0)
+    mean_zscore = np.nanmean(pooled_zscores, axis=0)
+    std_zscore = np.nanstd(pooled_zscores, axis=0)
+    median_zscore = np.nanmedian(pooled_zscores, axis=0)
 
-    # Compute 95% confidence intervals
-    ci_lower = np.percentile(pooled_zscores, 2.5, axis=0)
-    ci_upper = np.percentile(pooled_zscores, 97.5, axis=0)
+    # Compute 95% confidence intervals (using nanpercentile to handle NaN values)
+    ci_lower = np.nanpercentile(pooled_zscores, 2.5, axis=0)
+    ci_upper = np.nanpercentile(pooled_zscores, 97.5, axis=0)
 
     # Get cell types from first tile
     cell_types = all_metadata[0]['cell_types']
 
+    # Data quality checks
+    print(f"\n  Data Quality Checks:")
     print(f"  - Mean z-score range: [{mean_zscore.min():.2f}, {mean_zscore.max():.2f}]")
-    print(f"  - Mean std across cell type pairs: {std_zscore.mean():.3f}")
-    print(f"  - Mean CI width: {(ci_upper - ci_lower).mean():.3f}")
+    print(f"  - Mean z-score: {np.nanmean(mean_zscore):.3f}")
+    print(f"  - Std range: [{std_zscore.min():.2f}, {std_zscore.max():.2f}]")
+    print(f"  - Mean std across cell type pairs: {np.nanmean(std_zscore):.3f}")
+    print(f"  - Mean CI width: {np.nanmean(ci_upper - ci_lower):.3f}")
+
+    # Check for NaN or Inf values
+    n_nan_mean = np.isnan(mean_zscore).sum()
+    n_inf_mean = np.isinf(mean_zscore).sum()
+    n_nan_std = np.isnan(std_zscore).sum()
+    n_inf_std = np.isinf(std_zscore).sum()
+
+    if n_nan_mean > 0 or n_inf_mean > 0:
+        print(f"  [!] Warning: Mean z-scores contain {n_nan_mean} NaN and {n_inf_mean} Inf values")
+    if n_nan_std > 0 or n_inf_std > 0:
+        print(f"  [!] Warning: Std deviations contain {n_nan_std} NaN and {n_inf_std} Inf values")
+
+    # Check for unusually high std values
+    high_std_mask = std_zscore > 3.0
+    n_high_std = high_std_mask.sum()
+    if n_high_std > 0:
+        print(f"  [!] Warning: {n_high_std} cell type pairs have std > 3.0")
+        print(f"      Max std: {std_zscore.max():.2f}")
+        # Find which pairs have high std
+        high_std_indices = np.argwhere(high_std_mask)
+        if len(high_std_indices) > 0:
+            print(f"      Examples of high-std pairs:")
+            for idx in high_std_indices[:5]:
+                i, j = idx
+                print(f"        {cell_types[i]} - {cell_types[j]}: std={std_zscore[i,j]:.2f}")
 
     # Save aggregated statistics (optional)
     if save_matrix_csvs:
@@ -255,12 +305,17 @@ def visualize_aggregated_bootstrap_enrichment(
     n_tiles = aggregated_results['n_tiles']
     n_total_bootstrap = aggregated_results['n_total_bootstrap']
 
-    # Calculate dynamic color scale
-    max_abs_value = max(abs(mean_zscore.min()), abs(mean_zscore.max()))
+    # Calculate dynamic color scale (ignoring NaN)
+    max_abs_value = max(abs(np.nanmin(mean_zscore)), abs(np.nanmax(mean_zscore)))
     vmin = -max_abs_value
     vmax = max_abs_value
 
     print(f"  - Dynamic color scale: [{vmin:.2f}, {vmax:.2f}]")
+
+    # Check for NaN values that might cause empty plots
+    n_nan = np.isnan(mean_zscore).sum()
+    if n_nan > 0:
+        print(f"  [!] Warning: {n_nan} NaN values in mean z-scores - these will appear as white/empty in the plot")
 
     # Create annotations with CI
     annotations = []
@@ -270,6 +325,11 @@ def visualize_aggregated_bootstrap_enrichment(
             mean = mean_zscore[i, j]
             lower = ci_lower[i, j]
             upper = ci_upper[i, j]
+
+            # Handle NaN values
+            if np.isnan(mean) or np.isnan(lower) or np.isnan(upper):
+                row.append("N/A")
+                continue
 
             # Check if CI excludes zero (significant)
             significant = (lower > 0 and upper > 0) or (lower < 0 and upper < 0)
