@@ -119,7 +119,9 @@ def bootstrap_resample_tiles(adata, tile_key='tile_name', seed=None):
 def run_single_bootstrap_iteration(
     adata,
     tile_key='tile_name',
+    method='knn',
     radius=50,
+    n_neighbors=6,
     n_perms=100,
     cluster_key='cell_type',
     seed=None,
@@ -134,8 +136,12 @@ def run_single_bootstrap_iteration(
         Original AnnData object
     tile_key : str
         Key for tile identifiers
-    radius : float
-        Radius for spatial graph
+    method : str, default='knn'
+        Method for spatial graph: 'knn' or 'radius'
+    radius : float, default=50
+        Radius for spatial graph (used if method='radius')
+    n_neighbors : int, default=6
+        Number of neighbors for KNN (used if method='knn')
     n_perms : int
         Number of permutations for enrichment test
     cluster_key : str
@@ -163,7 +169,7 @@ def run_single_bootstrap_iteration(
 
     # Build spatial graph
     adata_boot = build_spatial_graph(
-        adata_boot, method='radius', radius=radius
+        adata_boot, method=method, radius=radius, n_neighbors=n_neighbors
     )
 
     # Run enrichment analysis with permutation
@@ -190,7 +196,9 @@ def run_bootstrap_permutation_analysis(
     adata,
     tile_key='tile_name',
     n_bootstrap=100,
+    method='knn',
     radius=50,
+    n_neighbors=6,
     n_perms=100,
     cluster_key='cell_type',
     seed=42,
@@ -207,8 +215,12 @@ def run_bootstrap_permutation_analysis(
         Key for tile identifiers
     n_bootstrap : int, default=100
         Number of bootstrap iterations
+    method : str, default='knn'
+        Method for spatial graph: 'knn' or 'radius'
     radius : float, default=50
-        Radius for spatial graph
+        Radius for spatial graph (used if method='radius')
+    n_neighbors : int, default=6
+        Number of neighbors for KNN (used if method='knn')
     n_perms : int, default=100
         Number of permutations per bootstrap
     cluster_key : str, default='cell_type'
@@ -235,7 +247,11 @@ def run_bootstrap_permutation_analysis(
     print(f"\nParameters:")
     print(f"  - Number of bootstrap iterations: {n_bootstrap}")
     print(f"  - Permutations per bootstrap: {n_perms}")
-    print(f"  - Spatial radius: {radius} pixels")
+    print(f"  - Spatial graph method: {method}")
+    if method == 'knn':
+        print(f"  - Number of neighbors (KNN): {n_neighbors}")
+    else:
+        print(f"  - Spatial radius: {radius} pixels")
     print(f"  - Tile key: {tile_key}")
 
     # Identify tiles
@@ -259,7 +275,9 @@ def run_bootstrap_permutation_analysis(
             results = run_single_bootstrap_iteration(
                 adata,
                 tile_key=tile_key,
+                method=method,
                 radius=radius,
+                n_neighbors=n_neighbors,
                 n_perms=n_perms,
                 cluster_key=cluster_key,
                 seed=boot_seed,
@@ -297,7 +315,9 @@ def run_bootstrap_permutation_analysis(
         'n_bootstrap': len(zscores_list),
         'parameters': {
             'n_perms': n_perms,
+            'method': method,
             'radius': radius,
+            'n_neighbors': n_neighbors,
             'tile_key': tile_key,
             'seed': seed
         }
@@ -316,7 +336,9 @@ def run_bootstrap_permutation_analysis(
 def compare_with_standard_permutation(
     adata,
     bootstrap_results,
+    method='knn',
     radius=50,
+    n_neighbors=6,
     n_perms=1000,
     cluster_key='cell_type'
 ):
@@ -329,8 +351,12 @@ def compare_with_standard_permutation(
         Full AnnData object (all tiles)
     bootstrap_results : dict
         Results from bootstrap analysis
-    radius : float
-        Radius for spatial graph
+    method : str, default='knn'
+        Method for spatial graph: 'knn' or 'radius'
+    radius : float, default=50
+        Radius for spatial graph (used if method='radius')
+    n_neighbors : int, default=6
+        Number of neighbors for KNN (used if method='knn')
     n_perms : int
         Number of permutations
     cluster_key : str
@@ -349,7 +375,7 @@ def compare_with_standard_permutation(
 
     # Run standard analysis on all tiles
     adata_std = adata.copy()
-    adata_std = build_spatial_graph(adata_std, method='radius', radius=radius)
+    adata_std = build_spatial_graph(adata_std, method=method, radius=radius, n_neighbors=n_neighbors)
     adata_std = neighborhood_enrichment_analysis(
         adata_std,
         cluster_key=cluster_key,
@@ -649,6 +675,177 @@ def summarize_bootstrap_interactions(
     return interactions_df
 
 
+def save_bootstrap_intermediate_results(bootstrap_results, output_dir, tile_name=None):
+    """
+    Save bootstrap intermediate results for efficient aggregation later.
+
+    This saves all bootstrap iterations' zscores and metadata to disk, avoiding
+    the need to keep large bootstrap arrays in memory during batch processing.
+
+    Parameters:
+    -----------
+    bootstrap_results : dict
+        Dictionary from run_bootstrap_permutation_analysis() containing:
+        - 'zscores': array of shape (n_bootstrap, n_celltypes, n_celltypes)
+        - 'mean_zscore', 'std_zscore', 'ci_lower', 'ci_upper'
+        - 'cell_types', 'n_bootstrap', 'parameters'
+    output_dir : str or Path
+        Directory to save intermediate results
+    tile_name : str, optional
+        Name of the tile (for prefixing files). If None, no prefix used.
+
+    Returns:
+    --------
+    saved_files : dict
+        Dictionary with paths to saved files
+    """
+    import json
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(exist_ok=True, parents=True)
+
+    # Get prefix for files
+    prefix = f'{tile_name}_' if tile_name else ''
+
+    # Extract bootstrap data
+    zscores_array = bootstrap_results['zscores']  # (n_bootstrap, n_celltypes, n_celltypes)
+    mean_zscore = bootstrap_results['mean_zscore']
+    std_zscore = bootstrap_results['std_zscore']
+    ci_lower = bootstrap_results['ci_lower']
+    ci_upper = bootstrap_results['ci_upper']
+    cell_types = bootstrap_results['cell_types']
+
+    # Save all bootstrap zscores as numpy binary (fast and compact)
+    zscores_path = output_dir / f'{prefix}bootstrap_zscores.npy'
+    np.save(zscores_path, zscores_array)
+
+    # Save aggregated statistics
+    mean_path = output_dir / f'{prefix}bootstrap_mean.npy'
+    np.save(mean_path, mean_zscore)
+
+    std_path = output_dir / f'{prefix}bootstrap_std.npy'
+    np.save(std_path, std_zscore)
+
+    ci_lower_path = output_dir / f'{prefix}bootstrap_ci_lower.npy'
+    np.save(ci_lower_path, ci_lower)
+
+    ci_upper_path = output_dir / f'{prefix}bootstrap_ci_upper.npy'
+    np.save(ci_upper_path, ci_upper)
+
+    # Save metadata as JSON
+    metadata = {
+        'tile_name': tile_name,
+        'n_bootstrap': int(bootstrap_results['n_bootstrap']),
+        'cell_types': cell_types,
+        'zscores_shape': list(zscores_array.shape),
+        'mean_abs_zscore': float(np.abs(mean_zscore).mean()),
+        'max_abs_zscore': float(np.abs(mean_zscore).max()),
+        'mean_std': float(std_zscore.mean()),
+        'max_std': float(std_zscore.max()),
+        'parameters': bootstrap_results['parameters']
+    }
+
+    metadata_path = output_dir / f'{prefix}bootstrap_metadata.json'
+    with open(metadata_path, 'w') as f:
+        json.dump(metadata, f, indent=2)
+
+    print(f"  - Saved bootstrap intermediate results:")
+    print(f"    • {zscores_path.name}")
+    print(f"    • {mean_path.name}")
+    print(f"    • {std_path.name}")
+    print(f"    • {ci_lower_path.name}")
+    print(f"    • {ci_upper_path.name}")
+    print(f"    • {metadata_path.name}")
+
+    return {
+        'zscores_path': zscores_path,
+        'mean_path': mean_path,
+        'std_path': std_path,
+        'ci_lower_path': ci_lower_path,
+        'ci_upper_path': ci_upper_path,
+        'metadata_path': metadata_path,
+        'zscores': zscores_array,
+        'mean_zscore': mean_zscore,
+        'std_zscore': std_zscore,
+        'ci_lower': ci_lower,
+        'ci_upper': ci_upper,
+        'metadata': metadata
+    }
+
+
+def load_bootstrap_intermediate_results(output_dir, tile_name=None):
+    """
+    Load bootstrap intermediate results saved by save_bootstrap_intermediate_results().
+
+    Parameters:
+    -----------
+    output_dir : str or Path
+        Directory containing saved results
+    tile_name : str, optional
+        Name of the tile (for prefixing files). If None, no prefix used.
+
+    Returns:
+    --------
+    results : dict
+        Dictionary containing bootstrap results:
+        - 'zscores': full bootstrap array (n_bootstrap, n_celltypes, n_celltypes)
+        - 'mean_zscore', 'std_zscore', 'ci_lower', 'ci_upper'
+        - 'cell_types', 'metadata'
+    """
+    import json
+
+    output_dir = Path(output_dir)
+    prefix = f'{tile_name}_' if tile_name else ''
+
+    # Load all bootstrap zscores
+    zscores_path = output_dir / f'{prefix}bootstrap_zscores.npy'
+    if not zscores_path.exists():
+        raise FileNotFoundError(f"Bootstrap zscores file not found: {zscores_path}")
+    zscores = np.load(zscores_path)
+
+    # Load aggregated statistics
+    mean_path = output_dir / f'{prefix}bootstrap_mean.npy'
+    if not mean_path.exists():
+        raise FileNotFoundError(f"Bootstrap mean file not found: {mean_path}")
+    mean_zscore = np.load(mean_path)
+
+    std_path = output_dir / f'{prefix}bootstrap_std.npy'
+    if not std_path.exists():
+        raise FileNotFoundError(f"Bootstrap std file not found: {std_path}")
+    std_zscore = np.load(std_path)
+
+    ci_lower_path = output_dir / f'{prefix}bootstrap_ci_lower.npy'
+    if not ci_lower_path.exists():
+        raise FileNotFoundError(f"Bootstrap CI lower file not found: {ci_lower_path}")
+    ci_lower = np.load(ci_lower_path)
+
+    ci_upper_path = output_dir / f'{prefix}bootstrap_ci_upper.npy'
+    if not ci_upper_path.exists():
+        raise FileNotFoundError(f"Bootstrap CI upper file not found: {ci_upper_path}")
+    ci_upper = np.load(ci_upper_path)
+
+    # Load metadata
+    metadata_path = output_dir / f'{prefix}bootstrap_metadata.json'
+    if not metadata_path.exists():
+        raise FileNotFoundError(f"Metadata file not found: {metadata_path}")
+
+    with open(metadata_path, 'r') as f:
+        metadata = json.load(f)
+
+    return {
+        'zscores': zscores,
+        'mean_zscore': mean_zscore,
+        'std_zscore': std_zscore,
+        'ci_lower': ci_lower,
+        'ci_upper': ci_upper,
+        'metadata': metadata,
+        'cell_types': metadata['cell_types'],
+        'n_bootstrap': metadata['n_bootstrap'],
+        'tile_name': metadata.get('tile_name'),
+        'parameters': metadata.get('parameters', {})
+    }
+
+
 def run_bootstrap_pipeline(
     adata_path,
     tile_key='tile_name',
@@ -733,6 +930,15 @@ def run_bootstrap_pipeline(
         n_perms=n_perms_bootstrap,
         cluster_key=cluster_key,
         seed=seed
+    )
+
+    # Save intermediate results for later aggregation
+    print("\n  - Saving intermediate bootstrap results for aggregation...")
+    tile_name = Path(adata_path).stem
+    save_bootstrap_intermediate_results(
+        bootstrap_results,
+        output_dir=output_dir,
+        tile_name=tile_name
     )
 
     # Step 2: Standard Permutation Analysis (for comparison)
