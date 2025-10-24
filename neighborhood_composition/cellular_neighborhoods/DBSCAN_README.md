@@ -258,7 +258,7 @@ The DBSCAN method follows this workflow:
 
 ## Example Scripts
 
-See `example_dbscan_usage.py` for detailed examples including:
+See `cn_eg_run.py` for detailed examples including:
 - Basic DBSCAN usage
 - K-means usage
 - Method comparison

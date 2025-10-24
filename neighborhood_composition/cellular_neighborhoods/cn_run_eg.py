@@ -10,7 +10,7 @@ Date: 2025-10-15
 """
 
 import scanpy as sc
-from cn_dbscan import DBSCANCellularNeighborhoodDetector
+from cn_dbscan_tiled import DBSCANCellularNeighborhoodDetector
 
 
 def example_dbscan_only(save_adata=False):

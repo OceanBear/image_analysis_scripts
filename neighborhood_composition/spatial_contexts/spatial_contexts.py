@@ -832,10 +832,10 @@ def main():
 
     Prerequisites:
     - Run data_preparation.py to create AnnData from JSON
-    - Run cn_kmeans.py to detect CNs
+    - Run cn_kmeans_tiled.py to detect CNs
     """
     # Input file configuration
-    # This should be the output from cn_kmeans.py
+    # This should be the output from cn_kmeans_tiled.py
     input_file = '../cellular_neighborhoods/cn/tile_39520_7904_adata_cns.h5ad'
     output_dir = 'sp_contexts'
 

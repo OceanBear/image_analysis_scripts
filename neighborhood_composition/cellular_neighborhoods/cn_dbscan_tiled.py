@@ -15,8 +15,11 @@ import seaborn as sns
 from sklearn.cluster import DBSCAN
 from scipy.spatial import distance_matrix
 from typing import Optional
-from cn_kmeans import CellularNeighborhoodDetector
-
+from cn_kmeans_tiled import CellularNeighborhoodDetector
+import os
+from pathlib import Path
+# Set the working directory to the script's directory
+os.chdir(Path(__file__).parent)
 
 class DBSCANCellularNeighborhoodDetector(CellularNeighborhoodDetector):
     """

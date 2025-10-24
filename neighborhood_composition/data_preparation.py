@@ -4,7 +4,10 @@ import pandas as pd
 import anndata as ad
 from pathlib import Path
 from tqdm import tqdm
-
+import os
+from pathlib import Path
+# Set the working directory to the script's directory
+os.chdir(Path(__file__).parent)
 # Cell type mapping
 CELL_TYPE_DICT = {
     0: "Undefined",
