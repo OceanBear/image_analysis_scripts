@@ -42,6 +42,49 @@ from ne_bootstrap_tiled import (
 warnings.filterwarnings('ignore')
 
 
+def handle_extreme_values_in_aggregation(zscores_array, max_zscore=50.0):
+    """
+    Handle infinite and extreme values during aggregation.
+    
+    Parameters:
+    -----------
+    zscores_array : np.array
+        Array of z-scores that may contain infinite or extreme values
+    max_zscore : float, default=50.0
+        Maximum allowed z-score value
+        
+    Returns:
+    --------
+    zscores_clean : np.array
+        Array with extreme values handled
+    """
+    zscores_clean = zscores_array.copy()
+    
+    # Handle infinite values
+    inf_mask = np.isinf(zscores_clean)
+    if inf_mask.any():
+        # Replace infinite values with clipped finite values
+        finite_values = zscores_clean[np.isfinite(zscores_clean)]
+        if len(finite_values) > 0:
+            max_finite = np.max(finite_values)
+            min_finite = np.min(finite_values)
+            
+            zscores_clean[zscores_clean == np.inf] = min(max_finite, max_zscore)
+            zscores_clean[zscores_clean == -np.inf] = max(min_finite, -max_zscore)
+        else:
+            zscores_clean[inf_mask] = 0.0
+    
+    # Handle NaN values
+    nan_mask = np.isnan(zscores_clean)
+    if nan_mask.any():
+        zscores_clean[nan_mask] = 0.0
+    
+    # Clip extreme values
+    zscores_clean = np.clip(zscores_clean, -max_zscore, max_zscore)
+    
+    return zscores_clean
+
+
 def find_bootstrap_result_dirs(parent_dir, pattern='tile_*'):
     """
     Find all directories containing bootstrap intermediate results.
@@ -81,7 +124,8 @@ def aggregate_bootstrap_results_from_tiles(
     tile_dirs,
     output_dir,
     tile_names=None,
-    save_matrix_csvs=False
+    save_matrix_csvs=False,
+    max_zscore=50.0
 ):
     """
     Aggregate bootstrap results from multiple tiles.
@@ -99,6 +143,8 @@ def aggregate_bootstrap_results_from_tiles(
         List of tile names. If None, extracts from directory names.
     save_matrix_csvs : bool, default=False
         Whether to save full matrix CSVs. If False, only saves interactions CSV.
+    max_zscore : float, default=50.0
+        Maximum z-score value for handling extreme values
 
     Returns:
     --------
@@ -169,6 +215,10 @@ def aggregate_bootstrap_results_from_tiles(
     # Each tile has shape (n_bootstrap_per_tile, n_celltypes, n_celltypes)
     # Result: (n_tiles * n_bootstrap_per_tile, n_celltypes, n_celltypes)
     pooled_zscores = np.concatenate(all_zscores, axis=0)
+    
+    # Handle extreme values in pooled data
+    print(f"  - Handling extreme values in pooled data...")
+    pooled_zscores_clean = handle_extreme_values_in_aggregation(pooled_zscores, max_zscore=max_zscore)
 
     n_total_bootstrap = pooled_zscores.shape[0]
     n_celltypes = pooled_zscores.shape[1]
@@ -177,15 +227,24 @@ def aggregate_bootstrap_results_from_tiles(
     print(f"  - From {len(all_zscores)} tiles")
     print(f"  - Cell types: {n_celltypes}")
 
-    # Compute aggregated statistics (using nanmean/nanstd to handle missing values)
+    # Compute aggregated statistics using cleaned data
     print(f"\nComputing aggregated statistics...")
-    mean_zscore = np.nanmean(pooled_zscores, axis=0)
-    std_zscore = np.nanstd(pooled_zscores, axis=0)
-    median_zscore = np.nanmedian(pooled_zscores, axis=0)
+    mean_zscore = np.nanmean(pooled_zscores_clean, axis=0)
+    std_zscore = np.nanstd(pooled_zscores_clean, axis=0)
+    median_zscore = np.nanmedian(pooled_zscores_clean, axis=0)
 
-    # Compute 95% confidence intervals (using nanpercentile to handle NaN values)
-    ci_lower = np.nanpercentile(pooled_zscores, 2.5, axis=0)
-    ci_upper = np.nanpercentile(pooled_zscores, 97.5, axis=0)
+    # Compute 95% confidence intervals using cleaned data
+    ci_lower = np.nanpercentile(pooled_zscores_clean, 2.5, axis=0)
+    ci_upper = np.nanpercentile(pooled_zscores_clean, 97.5, axis=0)
+    
+    # Additional robust statistics
+    trimmed_mean = np.array([
+        np.nanmean(np.clip(pooled_zscores_clean[:, i, j], 
+                          np.nanpercentile(pooled_zscores_clean[:, i, j], 5),
+                          np.nanpercentile(pooled_zscores_clean[:, i, j], 95)))
+        for i in range(pooled_zscores_clean.shape[1])
+        for j in range(pooled_zscores_clean.shape[2])
+    ]).reshape(pooled_zscores_clean.shape[1], pooled_zscores_clean.shape[2])
 
     # Get cell types from first tile
     cell_types = all_metadata[0]['cell_types']
@@ -198,7 +257,17 @@ def aggregate_bootstrap_results_from_tiles(
     print(f"  - Mean std across cell type pairs: {np.nanmean(std_zscore):.3f}")
     print(f"  - Mean CI width: {np.nanmean(ci_upper - ci_lower):.3f}")
 
-    # Check for NaN or Inf values
+    # Check for extreme values in original data
+    n_inf_original = np.isinf(pooled_zscores).sum()
+    n_nan_original = np.isnan(pooled_zscores).sum()
+    n_extreme_original = (np.abs(pooled_zscores) > max_zscore).sum()
+    
+    print(f"  - Extreme values in original data:")
+    print(f"    • Infinite values: {n_inf_original}")
+    print(f"    • NaN values: {n_nan_original}")
+    print(f"    • Extreme values (> {max_zscore}): {n_extreme_original}")
+
+    # Check for NaN or Inf values in aggregated results
     n_nan_mean = np.isnan(mean_zscore).sum()
     n_inf_mean = np.isinf(mean_zscore).sum()
     n_nan_std = np.isnan(std_zscore).sum()
@@ -256,6 +325,7 @@ def aggregate_bootstrap_results_from_tiles(
         'mean_zscore': mean_zscore,
         'std_zscore': std_zscore,
         'median_zscore': median_zscore,
+        'trimmed_mean': trimmed_mean,
         'ci_lower': ci_lower,
         'ci_upper': ci_upper,
         'cell_types': cell_types,
@@ -263,7 +333,18 @@ def aggregate_bootstrap_results_from_tiles(
         'n_total_bootstrap': n_total_bootstrap,
         'tile_names': actual_tile_names,
         'metadata_list': all_metadata,
-        'pooled_zscores': pooled_zscores  # Keep for additional analysis if needed
+        'pooled_zscores': pooled_zscores,  # Keep original for reference
+        'pooled_zscores_clean': pooled_zscores_clean,  # Cleaned version
+        'data_quality': {
+            'n_inf_original': n_inf_original,
+            'n_nan_original': n_nan_original,
+            'n_extreme_original': n_extreme_original,
+            'max_zscore_used': max_zscore,
+            'n_nan_mean': n_nan_mean,
+            'n_inf_mean': n_inf_mean,
+            'n_nan_std': n_nan_std,
+            'n_inf_std': n_inf_std
+        }
     }
 
     print("\n" + "="*70)
@@ -277,7 +358,8 @@ def visualize_aggregated_bootstrap_enrichment(
     aggregated_results,
     output_dir,
     figsize=(14, 10),
-    cmap='coolwarm'
+    cmap='coolwarm',
+    max_zscore=50.0
 ):
     """
     Visualize aggregated bootstrap enrichment with confidence intervals.
@@ -292,6 +374,8 @@ def visualize_aggregated_bootstrap_enrichment(
         Figure size
     cmap : str, default='coolwarm'
         Colormap
+    max_zscore : float, default=50.0
+        Maximum z-score value for color scale
 
     Returns:
     --------
@@ -309,10 +393,15 @@ def visualize_aggregated_bootstrap_enrichment(
     n_tiles = aggregated_results['n_tiles']
     n_total_bootstrap = aggregated_results['n_total_bootstrap']
 
-    # Calculate dynamic color scale (ignoring NaN)
-    max_abs_value = max(abs(np.nanmin(mean_zscore)), abs(np.nanmax(mean_zscore)))
-    vmin = -max_abs_value
-    vmax = max_abs_value
+    # Calculate dynamic color scale (ignoring NaN and extreme values)
+    finite_values = mean_zscore[np.isfinite(mean_zscore)]
+    if len(finite_values) > 0:
+        max_abs_value = max(abs(np.nanmin(finite_values)), abs(np.nanmax(finite_values)))
+        vmin = -min(max_abs_value, max_zscore)
+        vmax = min(max_abs_value, max_zscore)
+    else:
+        vmin = -max_zscore
+        vmax = max_zscore
 
     print(f"  - Dynamic color scale: [{vmin:.2f}, {vmax:.2f}]")
 
@@ -556,7 +645,8 @@ def run_aggregation_pipeline(
     tile_pattern='tile_*',
     save_matrix_csvs=False,
     threshold_zscore=2.0,
-    threshold_ci=True
+    threshold_ci=True,
+    max_zscore=50.0
 ):
     """
     Complete aggregation pipeline: load intermediate results and aggregate.
@@ -582,6 +672,8 @@ def run_aggregation_pipeline(
         Z-score threshold for significance
     threshold_ci : bool, default=True
         Require 95% CI to exclude zero for significance
+    max_zscore : float, default=50.0
+        Maximum z-score value for handling extreme values
 
     Returns:
     --------
@@ -618,7 +710,8 @@ def run_aggregation_pipeline(
         tile_dirs,
         output_dir=output_dir,
         tile_names=tile_names,
-        save_matrix_csvs=save_matrix_csvs
+        save_matrix_csvs=save_matrix_csvs,
+        max_zscore=max_zscore
     )
 
     # Step 3: Visualizations
@@ -628,7 +721,8 @@ def run_aggregation_pipeline(
 
     visualize_aggregated_bootstrap_enrichment(
         aggregated_results,
-        output_dir=output_dir
+        output_dir=output_dir,
+        max_zscore=max_zscore
     )
 
     visualize_aggregated_uncertainty(
@@ -681,7 +775,8 @@ if __name__ == "__main__":
         tile_pattern='tile_*',           # Pattern to match tile directories
         save_matrix_csvs=False,          # Set to True to save full matrices
         threshold_zscore=2.0,            # Z-score threshold
-        threshold_ci=True                # Require CI to exclude zero
+        threshold_ci=True,               # Require CI to exclude zero
+        max_zscore=50.0                  # Handle extreme values
     )
 
     print("\n" + "="*70)

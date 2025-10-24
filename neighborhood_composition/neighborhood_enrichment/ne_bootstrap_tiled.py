@@ -42,6 +42,51 @@ from ne_tiled import (
 warnings.filterwarnings('ignore')
 
 
+def handle_extreme_zscores(zscore_array, max_zscore=50.0):
+    """
+    Handle infinite and extreme z-scores by clipping and replacing with robust estimates.
+    
+    Parameters:
+    -----------
+    zscore_array : np.array
+        Array of z-scores that may contain infinite or extreme values
+    max_zscore : float, default=50.0
+        Maximum allowed z-score value
+        
+    Returns:
+    --------
+    zscore_clean : np.array
+        Array with extreme values handled
+    """
+    zscore_clean = zscore_array.copy()
+    
+    # Handle infinite values
+    inf_mask = np.isinf(zscore_clean)
+    if inf_mask.any():
+        # Replace infinite values with clipped finite values
+        finite_values = zscore_clean[np.isfinite(zscore_clean)]
+        if len(finite_values) > 0:
+            # Use the maximum finite value as replacement for +inf
+            max_finite = np.max(finite_values)
+            min_finite = np.min(finite_values)
+            
+            zscore_clean[zscore_clean == np.inf] = min(max_finite, max_zscore)
+            zscore_clean[zscore_clean == -np.inf] = max(min_finite, -max_zscore)
+        else:
+            # If all values are infinite, replace with zeros
+            zscore_clean[inf_mask] = 0.0
+    
+    # Handle NaN values
+    nan_mask = np.isnan(zscore_clean)
+    if nan_mask.any():
+        zscore_clean[nan_mask] = 0.0
+    
+    # Clip extreme values
+    zscore_clean = np.clip(zscore_clean, -max_zscore, max_zscore)
+    
+    return zscore_clean
+
+
 def identify_tiles(adata, tile_key='tile_name'):
     """
     Identify unique tiles in the dataset.
@@ -129,7 +174,9 @@ def run_single_bootstrap_iteration(
     n_perms=100,
     cluster_key='cell_type',
     seed=None,
-    verbose=False
+    verbose=False,
+    max_zscore=50.0,
+    min_cells_per_type=5
 ):
     """
     Run a single bootstrap iteration: resample tiles + enrichment analysis.
@@ -154,6 +201,10 @@ def run_single_bootstrap_iteration(
         Random seed
     verbose : bool
         Whether to print progress
+    max_zscore : float, default=50.0
+        Maximum z-score value (clips extreme values)
+    min_cells_per_type : int, default=5
+        Minimum cells per cell type for valid analysis
 
     Returns:
     --------
@@ -162,6 +213,7 @@ def run_single_bootstrap_iteration(
         - 'zscore': enrichment z-scores matrix
         - 'selected_tiles': tiles included in this bootstrap
         - 'n_cells': number of cells in bootstrap sample
+        - 'data_quality': quality metrics
     """
     if verbose:
         print(f"  Running bootstrap iteration (seed={seed})...")
@@ -171,6 +223,14 @@ def run_single_bootstrap_iteration(
         adata, tile_key=tile_key, seed=seed
     )
 
+    # Check data quality before analysis
+    cell_type_counts = adata_boot.obs[cluster_key].value_counts()
+    min_count = cell_type_counts.min()
+    
+    if min_count < min_cells_per_type:
+        if verbose:
+            print(f"    Warning: Some cell types have < {min_cells_per_type} cells (min: {min_count})")
+    
     # Build spatial graph
     adata_boot = build_spatial_graph(
         adata_boot, method=method, radius=radius, n_neighbors=n_neighbors
@@ -186,11 +246,31 @@ def run_single_bootstrap_iteration(
 
     # Extract z-scores
     zscore = adata_boot.uns[f'{cluster_key}_nhood_enrichment']['zscore']
+    zscore_array = np.array(zscore)
+    
+    # Handle infinite and extreme values
+    zscore_clean = handle_extreme_zscores(zscore_array, max_zscore=max_zscore)
+    
+    # Calculate data quality metrics
+    n_inf = np.isinf(zscore_array).sum()
+    n_nan = np.isnan(zscore_array).sum()
+    n_extreme = (np.abs(zscore_array) > max_zscore).sum()
+    max_abs_z = np.nanmax(np.abs(zscore_array))
+    
+    data_quality = {
+        'n_inf': n_inf,
+        'n_nan': n_nan,
+        'n_extreme': n_extreme,
+        'max_abs_z': max_abs_z,
+        'min_cell_count': min_count,
+        'n_cell_types': len(cell_type_counts)
+    }
 
     results = {
-        'zscore': np.array(zscore),
+        'zscore': zscore_clean,
         'selected_tiles': selected_tiles,
-        'n_cells': adata_boot.n_obs
+        'n_cells': adata_boot.n_obs,
+        'data_quality': data_quality
     }
 
     return results
@@ -206,7 +286,9 @@ def run_bootstrap_permutation_analysis(
     n_perms=100,
     cluster_key='cell_type',
     seed=42,
-    n_jobs=1
+    n_jobs=1,
+    max_zscore=50.0,
+    min_cells_per_type=5
 ):
     """
     Run full bootstrap-permutation analysis across multiple iterations.
@@ -285,7 +367,9 @@ def run_bootstrap_permutation_analysis(
                 n_perms=n_perms,
                 cluster_key=cluster_key,
                 seed=boot_seed,
-                verbose=False
+                verbose=False,
+                max_zscore=max_zscore,
+                min_cells_per_type=min_cells_per_type
             )
             zscores_list.append(results['zscore'])
         except Exception as e:
@@ -300,30 +384,56 @@ def run_bootstrap_permutation_analysis(
     # Stack results
     zscores_array = np.stack(zscores_list)  # shape: (n_bootstrap, n_celltypes, n_celltypes)
 
-    # Calculate statistics
-    mean_zscore = zscores_array.mean(axis=0)
-    std_zscore = zscores_array.std(axis=0)
+    # Calculate robust statistics
+    mean_zscore = np.nanmean(zscores_array, axis=0)
+    std_zscore = np.nanstd(zscores_array, axis=0)
+    median_zscore = np.nanmedian(zscores_array, axis=0)
 
-    # Calculate 95% confidence intervals
-    ci_lower = np.percentile(zscores_array, 2.5, axis=0)
-    ci_upper = np.percentile(zscores_array, 97.5, axis=0)
+    # Calculate 95% confidence intervals using robust percentiles
+    ci_lower = np.nanpercentile(zscores_array, 2.5, axis=0)
+    ci_upper = np.nanpercentile(zscores_array, 97.5, axis=0)
+    
+    # Additional robust statistics
+    trimmed_mean = np.array([
+        np.nanmean(np.clip(zscores_array[:, i, j], 
+                          np.nanpercentile(zscores_array[:, i, j], 5),
+                          np.nanpercentile(zscores_array[:, i, j], 95)))
+        for i in range(zscores_array.shape[1])
+        for j in range(zscores_array.shape[2])
+    ]).reshape(zscores_array.shape[1], zscores_array.shape[2])
 
+    # Data quality checks
+    n_inf_total = np.isinf(zscores_array).sum()
+    n_nan_total = np.isnan(zscores_array).sum()
+    n_extreme_total = (np.abs(zscores_array) > max_zscore).sum()
+    
     # Prepare results
     bootstrap_results = {
         'zscores': zscores_array,
         'mean_zscore': mean_zscore,
         'std_zscore': std_zscore,
+        'median_zscore': median_zscore,
+        'trimmed_mean': trimmed_mean,
         'ci_lower': ci_lower,
         'ci_upper': ci_upper,
         'cell_types': cell_types,
         'n_bootstrap': len(zscores_list),
+        'data_quality': {
+            'n_inf_total': n_inf_total,
+            'n_nan_total': n_nan_total,
+            'n_extreme_total': n_extreme_total,
+            'max_zscore_used': max_zscore,
+            'min_cells_per_type': min_cells_per_type
+        },
         'parameters': {
             'n_perms': n_perms,
             'method': method,
             'radius': radius,
             'n_neighbors': n_neighbors,
             'tile_key': tile_key,
-            'seed': seed
+            'seed': seed,
+            'max_zscore': max_zscore,
+            'min_cells_per_type': min_cells_per_type
         }
     }
 
@@ -333,6 +443,14 @@ def run_bootstrap_permutation_analysis(
     print(f"  - Mean std of z-scores: {std_zscore.mean():.3f}")
     print(f"  - Max std of z-scores: {std_zscore.max():.3f}")
     print(f"  - Mean CI width: {(ci_upper - ci_lower).mean():.3f}")
+    
+    # Data quality summary
+    print(f"\n  Data Quality:")
+    print(f"  - Infinite values handled: {n_inf_total}")
+    print(f"  - NaN values handled: {n_nan_total}")
+    print(f"  - Extreme values clipped: {n_extreme_total}")
+    print(f"  - Max z-score limit: {max_zscore}")
+    print(f"  - Min cells per type: {min_cells_per_type}")
 
     return bootstrap_results
 
@@ -861,7 +979,9 @@ def run_bootstrap_pipeline(
     cluster_key='cell_type',
     save_adata=False,
     save_matrix_csvs=False,
-    seed=42
+    seed=42,
+    max_zscore=50.0,
+    min_cells_per_type=5
 ):
     """
     Run complete bootstrap-permutation analysis pipeline for tiled images.
@@ -937,7 +1057,9 @@ def run_bootstrap_pipeline(
         radius=radius,
         n_perms=n_perms_bootstrap,
         cluster_key=cluster_key,
-        seed=seed
+        seed=seed,
+        max_zscore=max_zscore,
+        min_cells_per_type=min_cells_per_type
     )
 
     # Save intermediate results for later aggregation
@@ -1127,7 +1249,9 @@ if __name__ == "__main__":
         n_perms_standard=1000,          # Higher for single standard analysis
         cluster_key='cell_type',        # Adjust to your cell type column
         save_adata=False,               # Set to True to save processed data
-        seed=42
+        seed=42,
+        max_zscore=50.0,               # Clip extreme z-scores
+        min_cells_per_type=5           # Minimum cells per type for valid analysis
     )
 
     print("\n" + "=" * 70)

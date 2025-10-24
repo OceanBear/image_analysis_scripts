@@ -5,6 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
+import os
 # Set the working directory to the script's directory
 os.chdir(Path(__file__).parent)
 

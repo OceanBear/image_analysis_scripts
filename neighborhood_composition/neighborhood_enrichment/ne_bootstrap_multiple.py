@@ -26,6 +26,9 @@ Date: 2025-10-23
 import numpy as np
 import pandas as pd
 import scanpy as sc
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
+import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Optional, List, Dict
 import warnings
@@ -37,7 +40,9 @@ os.chdir(Path(__file__).parent)
 # Import functions from ne_bootstrap_tiled
 from ne_bootstrap_tiled import (
     run_bootstrap_permutation_analysis,
-    save_bootstrap_intermediate_results
+    save_bootstrap_intermediate_results,
+    visualize_bootstrap_enrichment,
+    visualize_bootstrap_comparison
 )
 
 # Import functions from ne_tiled
@@ -46,6 +51,57 @@ from ne_tiled import (
 )
 
 warnings.filterwarnings('ignore')
+
+
+def visualize_bootstrap_enrichment_silent(bootstrap_results, cluster_key='cell_type', save_path=None):
+    """
+    Silent version of visualize_bootstrap_enrichment that doesn't show figures.
+    """
+    # Temporarily redirect stdout to suppress print statements
+    import sys
+    from io import StringIO
+    
+    # Capture print output
+    old_stdout = sys.stdout
+    sys.stdout = StringIO()
+    
+    try:
+        # Call the original function
+        fig = visualize_bootstrap_enrichment(
+            bootstrap_results,
+            cluster_key=cluster_key,
+            save_path=save_path
+        )
+        return fig
+    finally:
+        # Restore stdout
+        sys.stdout = old_stdout
+
+
+def visualize_bootstrap_comparison_silent(bootstrap_results, standard_zscore, cell_types, save_path=None):
+    """
+    Silent version of visualize_bootstrap_comparison that doesn't show figures.
+    """
+    # Temporarily redirect stdout to suppress print statements
+    import sys
+    from io import StringIO
+    
+    # Capture print output
+    old_stdout = sys.stdout
+    sys.stdout = StringIO()
+    
+    try:
+        # Call the original function
+        fig = visualize_bootstrap_comparison(
+            bootstrap_results,
+            standard_zscore=standard_zscore,
+            cell_types=cell_types,
+            save_path=save_path
+        )
+        return fig
+    finally:
+        # Restore stdout
+        sys.stdout = old_stdout
 
 
 def find_h5ad_files(data_dir, pattern='*.h5ad'):
@@ -72,7 +128,96 @@ def find_h5ad_files(data_dir, pattern='*.h5ad'):
     return h5ad_files
 
 
-def check_intermediate_results_exist(tile_name, output_dir):
+def save_bootstrap_results_with_figures(
+    bootstrap_results,
+    output_dir,
+    tile_name,
+    save_figures=True,
+    figure_format='png',
+    figure_dpi=300
+):
+    """
+    Save bootstrap intermediate results and generate figures for a tile.
+
+    Parameters:
+    -----------
+    bootstrap_results : dict
+        Results from bootstrap analysis
+    output_dir : str or Path
+        Directory to save results
+    tile_name : str
+        Name of the tile
+    save_figures : bool, default=True
+        Whether to generate and save figures
+    figure_format : str, default='png'
+        Format for saved figures ('png', 'pdf', 'svg')
+    figure_dpi : int, default=300
+        DPI for saved figures
+
+    Returns:
+    --------
+    saved_files : dict
+        Dictionary with paths to saved files
+    """
+    output_dir = Path(output_dir)
+    tile_output_dir = output_dir / tile_name
+    tile_output_dir.mkdir(exist_ok=True, parents=True)
+
+    # Save intermediate results (data files)
+    saved_files = save_bootstrap_intermediate_results(
+        bootstrap_results,
+        output_dir=tile_output_dir,
+        tile_name=tile_name
+    )
+
+    # Generate and save figures if requested
+    if save_figures:
+        print(f"  - Generating figures for {tile_name}...")
+        
+        # Temporarily disable interactive mode to prevent popup windows
+        original_backend = matplotlib.get_backend()
+        matplotlib.use('Agg')
+        
+        try:
+            # Figure 1: Bootstrap enrichment with confidence intervals
+            fig1_path = tile_output_dir / f'{tile_name}_bootstrap_enrichment.{figure_format}'
+            try:
+                fig1 = visualize_bootstrap_enrichment_silent(
+                    bootstrap_results,
+                    cluster_key=bootstrap_results.get('parameters', {}).get('cluster_key', 'cell_type'),
+                    save_path=fig1_path
+                )
+                plt.close(fig1)  # Close to free memory
+                print(f"    • Saved enrichment figure: {fig1_path.name}")
+            except Exception as e:
+                print(f"    ✗ Failed to generate enrichment figure: {e}")
+
+            # Figure 2: Bootstrap uncertainty (standard deviation)
+            fig2_path = tile_output_dir / f'{tile_name}_bootstrap_uncertainty.{figure_format}'
+            try:
+                fig2 = visualize_bootstrap_comparison_silent(
+                    bootstrap_results,
+                    standard_zscore=None,  # Not needed for uncertainty plot
+                    cell_types=bootstrap_results['cell_types'],
+                    save_path=fig2_path
+                )
+                plt.close(fig2)  # Close to free memory
+                print(f"    • Saved uncertainty figure: {fig2_path.name}")
+            except Exception as e:
+                print(f"    ✗ Failed to generate uncertainty figure: {e}")
+
+            # Add figure paths to saved files
+            saved_files['enrichment_figure'] = fig1_path
+            saved_files['uncertainty_figure'] = fig2_path
+            
+        finally:
+            # Restore original backend
+            matplotlib.use(original_backend)
+
+    return saved_files
+
+
+def check_intermediate_results_exist(tile_name, output_dir, include_figures=True):
     """
     Check if intermediate bootstrap results already exist for a tile.
 
@@ -82,6 +227,8 @@ def check_intermediate_results_exist(tile_name, output_dir):
         Name of the tile
     output_dir : Path
         Directory where intermediate results are saved
+    include_figures : bool, default=True
+        Whether to check for figure files as well
 
     Returns:
     --------
@@ -90,7 +237,7 @@ def check_intermediate_results_exist(tile_name, output_dir):
     """
     tile_output_dir = output_dir / tile_name
 
-    # List of required files
+    # List of required data files
     required_files = [
         f'{tile_name}_bootstrap_zscores.npy',
         f'{tile_name}_bootstrap_mean.npy',
@@ -99,6 +246,13 @@ def check_intermediate_results_exist(tile_name, output_dir):
         f'{tile_name}_bootstrap_ci_upper.npy',
         f'{tile_name}_bootstrap_metadata.json'
     ]
+
+    # Add figure files if requested
+    if include_figures:
+        required_files.extend([
+            f'{tile_name}_bootstrap_enrichment.png',
+            f'{tile_name}_bootstrap_uncertainty.png'
+        ])
 
     # Check if all files exist
     all_exist = all((tile_output_dir / fname).exists() for fname in required_files)
@@ -117,7 +271,12 @@ def process_single_tile_bootstrap(
     n_perms=100,
     cluster_key='cell_type',
     seed=42,
-    force_reprocess=False
+    force_reprocess=False,
+    save_figures=True,
+    figure_format='png',
+    figure_dpi=300,
+    max_zscore=50.0,
+    min_cells_per_type=5
 ):
     """
     Process a single tile: run bootstrap analysis and save intermediate results.
@@ -146,6 +305,16 @@ def process_single_tile_bootstrap(
         Random seed
     force_reprocess : bool, default=False
         If True, reprocess even if results exist. If False, skip existing tiles.
+    save_figures : bool, default=True
+        Whether to generate and save figures
+    figure_format : str, default='png'
+        Format for saved figures ('png', 'pdf', 'svg')
+    figure_dpi : int, default=300
+        DPI for saved figures
+    max_zscore : float, default=50.0
+        Maximum z-score value (clips extreme values)
+    min_cells_per_type : int, default=5
+        Minimum cells per cell type for valid analysis
 
     Returns:
     --------
@@ -164,8 +333,8 @@ def process_single_tile_bootstrap(
     print(f"Processing: {tile_name}")
     print(f"{'='*70}")
 
-    # Check if results already exist
-    if not force_reprocess and check_intermediate_results_exist(tile_name, output_dir):
+    # Check if results already exist (including figures if save_figures=True)
+    if not force_reprocess and check_intermediate_results_exist(tile_name, output_dir, include_figures=save_figures):
         print(f"⊙ Results already exist for {tile_name} - skipping")
         print(f"  (Set force_reprocess=True to reprocess)")
         return tile_name, True, True  # success=True, skipped=True
@@ -189,16 +358,20 @@ def process_single_tile_bootstrap(
             n_neighbors=n_neighbors,
             n_perms=n_perms,
             cluster_key=cluster_key,
-            seed=seed
+            seed=seed,
+            max_zscore=max_zscore,
+            min_cells_per_type=min_cells_per_type
         )
 
-        # Save intermediate results
+        # Save intermediate results and generate figures
         print(f"\nSaving intermediate results for {tile_name}...")
-        tile_output_dir = output_dir / tile_name
-        save_bootstrap_intermediate_results(
+        saved_files = save_bootstrap_results_with_figures(
             bootstrap_results,
-            output_dir=tile_output_dir,
-            tile_name=tile_name
+            output_dir=output_dir,
+            tile_name=tile_name,
+            save_figures=save_figures,
+            figure_format=figure_format,
+            figure_dpi=figure_dpi
         )
 
         print(f"✓ Successfully processed {tile_name}")
@@ -219,7 +392,12 @@ def process_multiple_tiles_bootstrap(
     n_neighbors=6,
     n_perms=100,
     cluster_key='cell_type',
-    seed=42
+    seed=42,
+    save_figures=True,
+    figure_format='png',
+    figure_dpi=300,
+    max_zscore=50.0,
+    min_cells_per_type=5
 ):
     """
     Process multiple tiles in batch: run bootstrap analysis on each.
@@ -246,6 +424,16 @@ def process_multiple_tiles_bootstrap(
         Key for cell type labels
     seed : int, default=42
         Random seed
+    save_figures : bool, default=True
+        Whether to generate and save figures for each tile
+    figure_format : str, default='png'
+        Format for saved figures ('png', 'pdf', 'svg')
+    figure_dpi : int, default=300
+        DPI for saved figures
+    max_zscore : float, default=50.0
+        Maximum z-score value (clips extreme values)
+    min_cells_per_type : int, default=5
+        Minimum cells per cell type for valid analysis
 
     Returns:
     --------
@@ -286,7 +474,12 @@ def process_multiple_tiles_bootstrap(
             n_neighbors=n_neighbors,
             n_perms=n_perms,
             cluster_key=cluster_key,
-            seed=seed + i  # Different seed for each tile
+            seed=seed + i,  # Different seed for each tile
+            save_figures=save_figures,
+            figure_format=figure_format,
+            figure_dpi=figure_dpi,
+            max_zscore=max_zscore,
+            min_cells_per_type=min_cells_per_type
         )
 
         if success:
@@ -338,7 +531,12 @@ def run_bootstrap_multiple_pipeline(
     n_neighbors=6,
     n_perms=100,
     cluster_key='cell_type',
-    seed=42
+    seed=42,
+    save_figures=True,
+    figure_format='png',
+    figure_dpi=300,
+    max_zscore=50.0,
+    min_cells_per_type=5
 ):
     """
     Batch process multiple tiles: run bootstrap analysis and save intermediate results.
@@ -347,6 +545,7 @@ def run_bootstrap_multiple_pipeline(
     1. Finds all h5ad files in data_dir
     2. Runs bootstrap-permutation analysis on each tile
     3. Saves intermediate results for each tile (.npy and .json files)
+    4. Generates figures for each tile (if save_figures=True)
 
     For aggregation of results across tiles, use ne_bootstrap_aggregate.py
 
@@ -374,6 +573,16 @@ def run_bootstrap_multiple_pipeline(
         Key for cell type labels
     seed : int, default=42
         Random seed
+    save_figures : bool, default=True
+        Whether to generate and save figures for each tile
+    figure_format : str, default='png'
+        Format for saved figures ('png', 'pdf', 'svg')
+    figure_dpi : int, default=300
+        DPI for saved figures
+    max_zscore : float, default=50.0
+        Maximum z-score value (clips extreme values)
+    min_cells_per_type : int, default=5
+        Minimum cells per cell type for valid analysis
 
     Returns:
     --------
@@ -414,7 +623,12 @@ def run_bootstrap_multiple_pipeline(
         n_neighbors=n_neighbors,
         n_perms=n_perms,
         cluster_key=cluster_key,
-        seed=seed
+        seed=seed,
+        save_figures=save_figures,
+        figure_format=figure_format,
+        figure_dpi=figure_dpi,
+        max_zscore=max_zscore,
+        min_cells_per_type=min_cells_per_type
     )
 
     # Final summary
@@ -450,7 +664,12 @@ if __name__ == "__main__":
         n_neighbors=6,                   # KNN neighbors
         n_perms=100,                     # Permutations per bootstrap
         cluster_key='cell_type',         # Cell type column
-        seed=42
+        seed=42,
+        save_figures=True,               # Generate figures for each tile
+        figure_format='png',             # Figure format
+        figure_dpi=300,                  # Figure DPI
+        max_zscore=50.0,                # Clip extreme z-scores
+        min_cells_per_type=5            # Minimum cells per type
     )
 
     print("\n" + "="*70)
@@ -462,6 +681,7 @@ Batch Processing Complete!
 WHAT WAS GENERATED:
 - Intermediate bootstrap results for each tile (.npy files)
 - Metadata for each tile (.json files)
+- Figures for each tile (if save_figures=True)
 - Each tile directory contains:
   * {tile_name}_bootstrap_zscores.npy: Full bootstrap z-score array
   * {tile_name}_bootstrap_mean.npy: Mean z-scores
@@ -469,6 +689,8 @@ WHAT WAS GENERATED:
   * {tile_name}_bootstrap_ci_lower.npy: Lower confidence interval
   * {tile_name}_bootstrap_ci_upper.npy: Upper confidence interval
   * {tile_name}_bootstrap_metadata.json: Metadata (cell types, parameters, etc.)
+  * {tile_name}_bootstrap_enrichment.png: Enrichment heatmap with confidence intervals
+  * {tile_name}_bootstrap_uncertainty.png: Bootstrap uncertainty (standard deviation) heatmap
 
 NEXT STEP - AGGREGATION:
 To aggregate results across all tiles and generate final visualizations:

@@ -7,6 +7,10 @@ import seaborn as sns
 from pathlib import Path
 from scipy.spatial import distance_matrix
 from scipy.stats import chi2_contingency
+import os
+from pathlib import Path
+# Set the working directory to the script's directory
+os.chdir(Path(__file__).parent)
 
 
 def compute_ripley_statistics(adata, cluster_key='cell_type', mode='L',
