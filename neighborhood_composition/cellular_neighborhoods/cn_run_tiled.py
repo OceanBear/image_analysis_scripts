@@ -10,6 +10,9 @@ Date: 2025-10-15
 """
 
 import scanpy as sc
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
+import matplotlib.pyplot as plt
 from cn_dbscan_tiled import DBSCANCellularNeighborhoodDetector
 
 
