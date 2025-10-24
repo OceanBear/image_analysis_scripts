@@ -9,7 +9,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import os
 from pathlib import Path
-
+# Set the working directory to the script's directory
+os.chdir(Path(__file__).parent)
 from sklearn.cluster import KMeans
 from scipy.spatial import distance_matrix
 from typing import Optional, Tuple, List
@@ -227,7 +228,11 @@ class CellularNeighborhoodDetector:
             point_size: float = 0.5,
             palette: str = 'Set3',
             figsize: Optional[Tuple[int, int]] = None,
-            save_path: Optional[str] = None
+            save_path: Optional[str] = None,
+            k: Optional[int] = None,
+            n_clusters: Optional[int] = None,
+            eps: Optional[float] = None,
+            min_samples: Optional[int] = None
     ):
         """
         Visualize cellular neighborhoods spatially (similar to Fig 18a).
@@ -312,6 +317,23 @@ class CellularNeighborhoodDetector:
         for idx in range(n_images, len(axes)):
             fig.delaxes(axes[idx])
 
+        # Add overall title with parameters if provided
+        if k is not None and n_clusters is not None:
+            fig.suptitle(f'Cellular Neighborhoods (k={k}, n_clusters={n_clusters})', 
+                         fontsize=16, fontweight='bold', y=0.98)
+        elif k is not None and eps is not None and min_samples is not None:
+            fig.suptitle(f'Cellular Neighborhoods (k={k}, eps={eps}, min_samples={min_samples})', 
+                         fontsize=16, fontweight='bold', y=0.98)
+        elif k is not None:
+            fig.suptitle(f'Cellular Neighborhoods (k={k})', 
+                         fontsize=16, fontweight='bold', y=0.98)
+        elif n_clusters is not None:
+            fig.suptitle(f'Cellular Neighborhoods (n_clusters={n_clusters})', 
+                         fontsize=16, fontweight='bold', y=0.98)
+        elif eps is not None and min_samples is not None:
+            fig.suptitle(f'Cellular Neighborhoods (eps={eps}, min_samples={min_samples})', 
+                         fontsize=16, fontweight='bold', y=0.98)
+
         plt.tight_layout()
 
         if save_path:
@@ -330,7 +352,12 @@ class CellularNeighborhoodDetector:
             cmap: str = 'coolwarm',
             vmin: float = -2,
             vmax: float = 2,
-            save_path: Optional[str] = None
+            save_path: Optional[str] = None,
+            k: Optional[int] = None,
+            n_clusters: Optional[int] = None,
+            eps: Optional[float] = None,
+            min_samples: Optional[int] = None,
+            show_values: bool = True
     ):
         """
         Visualize CN composition as heatmap (similar to Fig 18b).
@@ -371,13 +398,29 @@ class CellularNeighborhoodDetector:
             cbar_kws={'label': 'Z-score'},
             linewidths=0.5,
             linecolor='white',
-            ax=ax
+            ax=ax,
+            annot=show_values,
+            fmt='.2f' if show_values else False,
+            annot_kws={'size': 8}
         )
 
         ax.set_xlabel('Cell Type', fontsize=12)
         ax.set_ylabel('Cellular Neighborhood', fontsize=12)
-        ax.set_title('Cell Type Composition by Cellular Neighborhood\n(Z-score scaled by column)',
-                     fontsize=14, fontweight='bold', pad=20)
+        
+        # Create title with parameters if provided
+        title = 'Cell Type Composition by Cellular Neighborhood\n(Z-score scaled by column)'
+        if k is not None and n_clusters is not None:
+            title = f'Cell Type Composition by Cellular Neighborhood (k={k}, n_clusters={n_clusters})\n(Z-score scaled by column)'
+        elif k is not None and eps is not None and min_samples is not None:
+            title = f'Cell Type Composition by Cellular Neighborhood (k={k}, eps={eps}, min_samples={min_samples})\n(Z-score scaled by column)'
+        elif k is not None:
+            title = f'Cell Type Composition by Cellular Neighborhood (k={k})\n(Z-score scaled by column)'
+        elif n_clusters is not None:
+            title = f'Cell Type Composition by Cellular Neighborhood (n_clusters={n_clusters})\n(Z-score scaled by column)'
+        elif eps is not None and min_samples is not None:
+            title = f'Cell Type Composition by Cellular Neighborhood (eps={eps}, min_samples={min_samples})\n(Z-score scaled by column)'
+            
+        ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
 
         # Rotate labels
         plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
@@ -449,13 +492,18 @@ class CellularNeighborhoodDetector:
 
         self.visualize_spatial_cns(
             img_id_key=img_id_key,
-            save_path=f'{output_dir}/spatial_cns.png'
+            save_path=f'{output_dir}/spatial_cns.png',
+            k=k,
+            n_clusters=n_clusters
         )
 
         # Step 5: Visualize CN composition
         fig, composition, composition_zscore = self.visualize_cn_composition(
             celltype_key=celltype_key,
-            save_path=f'{output_dir}/cn_composition_heatmap.png'
+            save_path=f'{output_dir}/cn_composition_heatmap.png',
+            k=k,
+            n_clusters=n_clusters,
+            show_values=True
         )
 
         # Step 6: Save results

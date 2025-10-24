@@ -211,14 +211,21 @@ class DBSCANCellularNeighborhoodDetector(CellularNeighborhoodDetector):
         self.visualize_spatial_cns(
             cn_key=output_key,
             img_id_key=img_id_key,
-            save_path=f'{output_dir}/spatial_cns_dbscan_{eps}_{min_samples}.png'
+            save_path=f'{output_dir}/spatial_cns_dbscan_{eps}_{min_samples}.png',
+            k=k,
+            eps=eps,
+            min_samples=min_samples
         )
 
         # Step 5: Visualize CN composition
         fig, composition, composition_zscore = self.visualize_cn_composition(
             cn_key=output_key,
             celltype_key=celltype_key,
-            save_path=f'{output_dir}/cn_composition_heatmap_dbscan_{eps}_{min_samples}.png'
+            save_path=f'{output_dir}/cn_composition_heatmap_dbscan_{eps}_{min_samples}.png',
+            k=k,
+            eps=eps,
+            min_samples=min_samples,
+            show_values=True
         )
 
         # Step 6: Save results
