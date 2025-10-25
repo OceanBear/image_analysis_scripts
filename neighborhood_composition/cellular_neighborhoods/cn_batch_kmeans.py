@@ -82,6 +82,35 @@ class BatchCellularNeighborhoodProcessor:
         print(f"Found {len(tile_files)} tile files")
         return sorted(tile_files)
     
+    def is_tile_already_processed(self, tile_name: str) -> bool:
+        """
+        Check if a tile has already been processed by looking for output files.
+        
+        Parameters:
+        -----------
+        tile_name : str
+            Name of the tile to check
+            
+        Returns:
+        --------
+        bool
+            True if tile is already processed, False otherwise
+        """
+        # Check for processed h5ad file
+        processed_h5ad_path = self.output_base_dir / 'processed_h5ad' / f'{tile_name}_adata_cns.h5ad'
+        if processed_h5ad_path.exists():
+            return True
+            
+        # Check for individual tile results
+        tile_output_dir = self.output_base_dir / 'individual_tiles' / tile_name
+        if tile_output_dir.exists():
+            # Check for key output files
+            required_files = ['spatial_cns.png', 'cn_composition_heatmap.png', 'cn_composition.csv']
+            if all((tile_output_dir / file).exists() for file in required_files):
+                return True
+                
+        return False
+
     def process_single_tile(self, 
                            tile_path: Path, 
                            k: int = 20,
@@ -89,7 +118,8 @@ class BatchCellularNeighborhoodProcessor:
                            celltype_key: str = 'cell_type',
                            img_id_key: str = 'tile_name',
                            random_state: int = 220705,
-                           save_adata: bool = True) -> Dict:
+                           save_adata: bool = True,
+                           skip_processed: bool = True) -> Dict:
         """
         Process a single tile for cellular neighborhood detection.
         
@@ -109,6 +139,8 @@ class BatchCellularNeighborhoodProcessor:
             Random seed
         save_adata : bool
             Whether to save the processed AnnData object
+        skip_processed : bool
+            Whether to skip already processed tiles
             
         Returns:
         --------
@@ -120,6 +152,16 @@ class BatchCellularNeighborhoodProcessor:
         print(f"PROCESSING TILE: {tile_name}")
         print(f"{'='*60}")
         
+        # Check if tile is already processed
+        if skip_processed and self.is_tile_already_processed(tile_name):
+            print(f"✓ Tile {tile_name} already processed, skipping...")
+            return {
+                'tile_name': tile_name,
+                'tile_path': str(tile_path),
+                'status': 'skipped',
+                'message': 'Already processed'
+            }
+        
         start_time = time.time()
         
         try:
@@ -127,6 +169,31 @@ class BatchCellularNeighborhoodProcessor:
             print(f"Loading data from: {tile_path}")
             adata = sc.read_h5ad(tile_path)
             print(f"Loaded {adata.n_obs} cells, {adata.n_vars} genes")
+            
+            # Auto-detect column names if they don't exist
+            if celltype_key not in adata.obs.columns:
+                # Try common alternatives
+                alternatives = ['celltype', 'cell_type', 'CellType', 'Cell_Type', 'cellType']
+                for alt in alternatives:
+                    if alt in adata.obs.columns:
+                        celltype_key = alt
+                        print(f"  - Auto-detected cell type column: {celltype_key}")
+                        break
+                else:
+                    print(f"  - Available columns: {list(adata.obs.columns)}")
+                    raise ValueError(f"Cell type column '{celltype_key}' not found. Available columns: {list(adata.obs.columns)}")
+            
+            if img_id_key not in adata.obs.columns:
+                # Try common alternatives
+                alternatives = ['tile_name', 'tile_id', 'image_id', 'sample_id', 'Tile_Name']
+                for alt in alternatives:
+                    if alt in adata.obs.columns:
+                        img_id_key = alt
+                        print(f"  - Auto-detected image ID column: {img_id_key}")
+                        break
+                else:
+                    print(f"  - Available columns: {list(adata.obs.columns)}")
+                    raise ValueError(f"Image ID column '{img_id_key}' not found. Available columns: {list(adata.obs.columns)}")
             
             # Initialize detector
             detector = CellularNeighborhoodDetector(adata)
@@ -172,7 +239,10 @@ class BatchCellularNeighborhoodProcessor:
             }
             
             # Add CN composition summary
-            composition = detector.compute_cn_composition()
+            composition = detector.compute_cn_composition(
+                cn_key='cn_celltype',
+                celltype_key=celltype_key
+            )
             result['cn_composition_summary'] = {
                 'cn_sizes': adata.obs['cn_celltype'].value_counts().to_dict(),
                 'cell_type_counts': adata.obs[celltype_key].value_counts().to_dict()
@@ -256,7 +326,8 @@ class BatchCellularNeighborhoodProcessor:
                          img_id_key: str = 'tile_name',
                          random_state: int = 220705,
                          save_adata: bool = True,
-                         max_tiles: Optional[int] = None) -> List[Dict]:
+                         max_tiles: Optional[int] = None,
+                         skip_processed: bool = True) -> List[Dict]:
         """
         Process all discovered tiles.
         
@@ -276,6 +347,8 @@ class BatchCellularNeighborhoodProcessor:
             Whether to save processed AnnData objects
         max_tiles : int, optional
             Maximum number of tiles to process (for testing)
+        skip_processed : bool
+            Whether to skip already processed tiles
             
         Returns:
         --------
@@ -310,7 +383,8 @@ class BatchCellularNeighborhoodProcessor:
                 celltype_key=celltype_key,
                 img_id_key=img_id_key,
                 random_state=random_state,
-                save_adata=save_adata
+                save_adata=save_adata,
+                skip_processed=skip_processed
             )
             
             all_results.append(result)
@@ -326,15 +400,21 @@ class BatchCellularNeighborhoodProcessor:
         self._save_batch_summary(all_results)
         
         total_time = time.time() - start_time
+        successful_count = len([r for r in all_results if r.get('status') == 'success'])
+        failed_count = len([r for r in all_results if r.get('status') == 'failed'])
+        skipped_count = len([r for r in all_results if r.get('status') == 'skipped'])
+        
         print(f"\n{'='*80}")
         print(f"BATCH PROCESSING COMPLETE")
         print(f"{'='*80}")
         print(f"Total processing time: {total_time/60:.1f} minutes")
-        print(f"Successfully processed: {len(self.processed_tiles)} tiles")
-        print(f"Failed tiles: {len(self.failed_tiles)} tiles")
+        print(f"Successfully processed: {successful_count} tiles")
+        print(f"Failed tiles: {failed_count} tiles")
+        print(f"Skipped tiles: {skipped_count} tiles")
         
-        if self.failed_tiles:
-            print(f"Failed tiles: {', '.join(self.failed_tiles)}")
+        if failed_count > 0:
+            failed_tiles = [r['tile_name'] for r in all_results if r.get('status') == 'failed']
+            print(f"Failed tiles: {', '.join(failed_tiles[:10])}{'...' if len(failed_tiles) > 10 else ''}")
         
         return all_results
     
@@ -354,16 +434,23 @@ class BatchCellularNeighborhoodProcessor:
         summary_df.to_csv(summary_path, index=False)
         print(f"\nSaved batch processing summary to: {summary_path}")
         
+        # Count different status types
+        successful_tiles = [r for r in results if r.get('status') == 'success']
+        failed_tiles = [r for r in results if r.get('status') == 'failed']
+        skipped_tiles = [r for r in results if r.get('status') == 'skipped']
+        
         # Save detailed summary
         detailed_summary = {
             'total_tiles': len(results),
-            'successful_tiles': len(self.processed_tiles),
-            'failed_tiles': len(self.failed_tiles),
+            'successful_tiles': len(successful_tiles),
+            'failed_tiles': len(failed_tiles),
+            'skipped_tiles': len(skipped_tiles),
             'total_processing_time_minutes': sum(r.get('processing_time_seconds', 0) for r in results) / 60,
-            'average_processing_time_per_tile': np.mean([r.get('processing_time_seconds', 0) for r in results]),
+            'average_processing_time_per_tile': np.mean([r.get('processing_time_seconds', 0) for r in results if r.get('processing_time_seconds', 0) > 0]),
             'total_cells_processed': sum(r.get('n_cells', 0) for r in results if r.get('status') == 'success'),
-            'processed_tiles': self.processed_tiles,
-            'failed_tiles': self.failed_tiles
+            'processed_tiles': [r['tile_name'] for r in successful_tiles],
+            'failed_tiles': [r['tile_name'] for r in failed_tiles],
+            'skipped_tiles': [r['tile_name'] for r in skipped_tiles]
         }
         
         detailed_summary_path = self.output_base_dir / 'detailed_summary.json'

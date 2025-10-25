@@ -5,7 +5,7 @@ This script demonstrates how to use the BatchCellularNeighborhoodProcessor
 to process multiple tiles with different configurations.
 """
 
-from cn_batch_processing import BatchCellularNeighborhoodProcessor
+from cn_batch_kmeans import BatchCellularNeighborhoodProcessor
 
 
 def example_basic_processing():
