@@ -21,9 +21,10 @@ from typing import List, Dict, Optional, Tuple
 import warnings
 import json
 from scipy.sparse import csr_matrix
-
+from pathlib import Path
+# Set the working directory to the script's directory
+os.chdir(Path(__file__).parent)
 warnings.filterwarnings('ignore')
-
 
 class CNResultsAggregator:
     """
@@ -469,10 +470,14 @@ class CNResultsAggregator:
         
         # Add CN labels if available
         if not cn_labels.empty:
-            # Merge CN labels
-            cn_merge = cn_labels.set_index(combined.index)
-            combined = combined.join(cn_merge[['cn_celltype']], how='left')
-            print(f"  - Added CN labels to {combined['cn_celltype'].notna().sum()} cells")
+            # Check if cn_celltype already exists in combined data
+            if 'cn_celltype' not in combined.columns:
+                # Merge CN labels only if they don't already exist
+                cn_merge = cn_labels.set_index(combined.index)
+                combined = combined.join(cn_merge[['cn_celltype']], how='left')
+                print(f"  - Added CN labels to {combined['cn_celltype'].notna().sum()} cells")
+            else:
+                print(f"  - CN labels already present in cell metadata")
         
         # Save combined dataset
         combined_path = self.output_dir / 'combined_dataset.csv'

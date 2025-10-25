@@ -4,17 +4,174 @@ import pandas as pd
 import anndata as ad
 import scanpy as sc
 import squidpy as sq
+import matplotlib
 import matplotlib.pyplot as plt
 import seaborn as sns
 import networkx as nx
 import os
 import json
 from pathlib import Path
-from typing import Optional, Tuple, List, Dict
+from typing import Optional, Tuple, List, Dict, Union
 from scipy.sparse import csr_matrix
 import warnings
+import glob
+matplotlib.use('Agg')  # Use non-interactive backend
 
+from pathlib import Path
+# Set the working directory to the script's directory
+os.chdir(Path(__file__).parent)
 warnings.filterwarnings('ignore')
+warnings.filterwarnings('ignore')
+
+
+def discover_processed_files(batch_results_dir: str) -> List[str]:
+    """
+    Discover all processed h5ad files with CN annotations.
+    
+    Parameters:
+    -----------
+    batch_results_dir : str
+        Path to batch results directory containing processed_h5ad subdirectory
+        
+    Returns:
+    --------
+    file_paths : List[str]
+        List of paths to processed h5ad files
+    """
+    processed_h5ad_dir = Path(batch_results_dir) / 'processed_h5ad'
+    
+    if not processed_h5ad_dir.exists():
+        print(f"Warning: Directory {processed_h5ad_dir} does not exist")
+        return []
+    
+    # Find all h5ad files with CN annotations
+    pattern = str(processed_h5ad_dir / '*_adata_cns.h5ad')
+    file_paths = glob.glob(pattern)
+    
+    print(f"Found {len(file_paths)} processed h5ad files:")
+    for i, path in enumerate(file_paths, 1):
+        filename = Path(path).name
+        print(f"  {i}. {filename}")
+    
+    return sorted(file_paths)
+
+
+def load_multiple_tiles_individual(file_paths: List[str]) -> List[ad.AnnData]:
+    """
+    Load multiple tiles as individual AnnData objects.
+    
+    Parameters:
+    -----------
+    file_paths : List[str]
+        List of paths to h5ad files
+        
+    Returns:
+    --------
+    adata_list : List[AnnData]
+        List of AnnData objects, one per tile
+    """
+    print(f"Loading {len(file_paths)} tiles individually...")
+    
+    adata_list = []
+    for i, file_path in enumerate(file_paths, 1):
+        print(f"  Loading tile {i}/{len(file_paths)}: {Path(file_path).name}")
+        
+        try:
+            adata = sc.read_h5ad(file_path)
+            
+            # Add tile identifier if not present
+            if 'tile_name' not in adata.obs.columns:
+                tile_name = Path(file_path).stem.replace('_adata_cns', '')
+                adata.obs['tile_name'] = tile_name
+            
+            # Verify required columns
+            if 'cn_celltype' not in adata.obs.columns:
+                print(f"    Warning: No 'cn_celltype' column found in {file_path}")
+                continue
+                
+            adata_list.append(adata)
+            print(f"    - Loaded {adata.n_obs} cells, {adata.n_vars} genes")
+            
+        except Exception as e:
+            print(f"    Error loading {file_path}: {str(e)}")
+            continue
+    
+    print(f"Successfully loaded {len(adata_list)} tiles")
+    return adata_list
+
+
+def load_multiple_tiles_aggregated(file_paths: List[str], 
+                                  coord_offset: bool = True) -> ad.AnnData:
+    """
+    Load multiple tiles and combine into a single AnnData object.
+    
+    Parameters:
+    -----------
+    file_paths : List[str]
+        List of paths to h5ad files
+    coord_offset : bool, default=True
+        Whether to offset spatial coordinates to avoid overlap
+        
+    Returns:
+    --------
+    combined_adata : AnnData
+        Combined AnnData object with all tiles
+    """
+    print(f"Loading and combining {len(file_paths)} tiles...")
+    
+    adata_list = []
+    coord_offset_x = 0
+    coord_offset_y = 0
+    
+    for i, file_path in enumerate(file_paths, 1):
+        print(f"  Loading tile {i}/{len(file_paths)}: {Path(file_path).name}")
+        
+        try:
+            adata = sc.read_h5ad(file_path)
+            
+            # Add tile identifier
+            tile_name = Path(file_path).stem.replace('_adata_cns', '')
+            adata.obs['tile_name'] = tile_name
+            
+            # Verify required columns
+            if 'cn_celltype' not in adata.obs.columns:
+                print(f"    Warning: No 'cn_celltype' column found in {file_path}")
+                continue
+            
+            # Offset spatial coordinates if requested
+            if coord_offset and 'spatial' in adata.obsm:
+                coords = adata.obsm['spatial'].copy()
+                coords[:, 0] += coord_offset_x
+                coords[:, 1] += coord_offset_y
+                adata.obsm['spatial'] = coords
+                
+                # Update offset for next tile
+                if coord_offset:
+                    coord_offset_x += coords[:, 0].max() + 100  # 100 pixel gap
+                    coord_offset_y = 0  # Reset Y offset for now
+            
+            adata_list.append(adata)
+            print(f"    - Loaded {adata.n_obs} cells, {adata.n_vars} genes")
+            
+        except Exception as e:
+            print(f"    Error loading {file_path}: {str(e)}")
+            continue
+    
+    if not adata_list:
+        raise ValueError("No valid tiles could be loaded")
+    
+    # Combine all tiles
+    print("Combining tiles into single AnnData object...")
+    combined_adata = ad.concat(adata_list, join='outer', index_unique='-')
+    
+    # Ensure spatial coordinates are properly set
+    if 'spatial' not in combined_adata.obsm:
+        print("Warning: No spatial coordinates found in combined data")
+    
+    print(f"Combined dataset: {combined_adata.n_obs} cells, {combined_adata.n_vars} genes")
+    print(f"Tiles: {combined_adata.obs['tile_name'].unique()}")
+    
+    return combined_adata
 
 
 def load_cell_type_colors(type_info_path: str = '../type_info.json') -> Dict[str, tuple]:
@@ -825,17 +982,339 @@ class SpatialContextDetector:
         return self
 
 
+class BatchSpatialContextProcessor:
+    """
+    Process multiple tiles for spatial context detection.
+    Supports both individual tile processing and aggregated processing.
+    """
+    
+    def __init__(self, batch_results_dir: str, output_dir: str = 'batch_spatial_contexts'):
+        """
+        Initialize batch processor.
+        
+        Parameters:
+        -----------
+        batch_results_dir : str
+            Path to batch results directory
+        output_dir : str
+            Directory to save results
+        """
+        self.batch_results_dir = Path(batch_results_dir)
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Discover processed files
+        self.file_paths = discover_processed_files(batch_results_dir)
+        if not self.file_paths:
+            raise ValueError(f"No processed h5ad files found in {batch_results_dir}")
+    
+    def process_individual_tiles(self, 
+                                k: int = 40,
+                                threshold: float = 0.9,
+                                min_cells: int = 100,
+                                img_id_key: str = 'tile_name',
+                                graph_layout: str = 'spring') -> Dict[str, Dict]:
+        """
+        Process each tile individually for spatial context detection.
+        
+        Parameters:
+        -----------
+        k : int, default=40
+            Number of nearest neighbors for SC detection
+        threshold : float, default=0.9
+            Cumulative CN fraction threshold for SC assignment
+        min_cells : int, default=100
+            Minimum cells for SC to be retained
+        img_id_key : str
+            Key in adata.obs containing tile identifiers
+        graph_layout : str
+            Layout algorithm for SC graph
+            
+        Returns:
+        --------
+        results : Dict[str, Dict]
+            Results for each tile
+        """
+        print("=" * 80)
+        print("INDIVIDUAL TILE SPATIAL CONTEXT PROCESSING")
+        print("=" * 80)
+        
+        # Load tiles individually
+        adata_list = load_multiple_tiles_individual(self.file_paths)
+        
+        results = {}
+        tile_output_dir = self.output_dir / 'individual_tiles'
+        tile_output_dir.mkdir(exist_ok=True)
+        
+        for i, adata in enumerate(adata_list, 1):
+            tile_name = adata.obs['tile_name'].iloc[0]
+            print(f"\n{'='*60}")
+            print(f"PROCESSING TILE {i}/{len(adata_list)}: {tile_name}")
+            print(f"{'='*60}")
+            
+            try:
+                # Initialize detector
+                detector = SpatialContextDetector(adata, cn_key='cn_celltype', celltype_key='cell_type')
+                
+                # Run pipeline
+                detector.run_full_pipeline(
+                    k=k,
+                    threshold=threshold,
+                    min_cells=min_cells,
+                    img_id_key=img_id_key,
+                    output_dir=str(tile_output_dir / tile_name),
+                    graph_layout=graph_layout
+                )
+                
+                # Save annotated data
+                output_path = tile_output_dir / f'{tile_name}_adata_scs.h5ad'
+                adata.write(output_path)
+                
+                # Store results
+                results[tile_name] = {
+                    'n_cells': adata.n_obs,
+                    'n_scs': len(adata.obs['spatial_context_filtered'].cat.categories),
+                    'output_path': str(output_path)
+                }
+                
+                print(f"Tile {tile_name} completed successfully")
+                
+            except Exception as e:
+                print(f"Error processing tile {tile_name}: {str(e)}")
+                results[tile_name] = {'error': str(e)}
+                continue
+        
+        # Create summary
+        self._create_individual_summary(results, tile_output_dir)
+        
+        return results
+    
+    def process_aggregated_tiles(self,
+                                 k: int = 40,
+                                 threshold: float = 0.9,
+                                 min_cells: int = 100,
+                                 min_groups: Optional[int] = None,
+                                 group_key: Optional[str] = None,
+                                 img_id_key: str = 'tile_name',
+                                 graph_layout: str = 'spring',
+                                 coord_offset: bool = True) -> Dict:
+        """
+        Process all tiles as a combined dataset for spatial context detection.
+        
+        Parameters:
+        -----------
+        k : int, default=40
+            Number of nearest neighbors for SC detection
+        threshold : float, default=0.9
+            Cumulative CN fraction threshold for SC assignment
+        min_cells : int, default=100
+            Minimum cells for SC to be retained
+        min_groups : int, optional
+            Minimum number of tiles an SC must appear in
+        group_key : str, optional
+            Key for group filtering (use 'tile_name' for tile-based filtering)
+        img_id_key : str
+            Key in adata.obs containing tile identifiers
+        graph_layout : str
+            Layout algorithm for SC graph
+        coord_offset : bool
+            Whether to offset spatial coordinates to avoid overlap
+            
+        Returns:
+        --------
+        results : Dict
+            Aggregated processing results
+        """
+        print("=" * 80)
+        print("AGGREGATED TILE SPATIAL CONTEXT PROCESSING")
+        print("=" * 80)
+        
+        # Load and combine all tiles
+        combined_adata = load_multiple_tiles_aggregated(self.file_paths, coord_offset=coord_offset)
+        
+        # Initialize detector
+        detector = SpatialContextDetector(combined_adata, cn_key='cn_celltype', celltype_key='cell_type')
+        
+        # Run pipeline
+        detector.run_full_pipeline(
+            k=k,
+            threshold=threshold,
+            min_cells=min_cells,
+            min_groups=min_groups,
+            group_key=group_key or 'tile_name',
+            img_id_key=img_id_key,
+            output_dir=str(self.output_dir / 'aggregated'),
+            graph_layout=graph_layout
+        )
+        
+        # Save annotated data
+        output_path = self.output_dir / 'aggregated_adata_scs.h5ad'
+        combined_adata.write(output_path)
+        
+        # Create tile-specific summaries
+        self._create_aggregated_summary(combined_adata, self.output_dir)
+        
+        results = {
+            'n_tiles': len(combined_adata.obs['tile_name'].unique()),
+            'n_cells': combined_adata.n_obs,
+            'n_scs': len(combined_adata.obs['spatial_context_filtered'].cat.categories),
+            'output_path': str(output_path)
+        }
+        
+        return results
+    
+    def _create_individual_summary(self, results: Dict[str, Dict], output_dir: Path):
+        """Create summary statistics for individual tile processing."""
+        print("\n" + "=" * 60)
+        print("CREATING INDIVIDUAL TILE SUMMARY")
+        print("=" * 60)
+        
+        # Collect statistics
+        summary_data = []
+        for tile_name, tile_results in results.items():
+            if 'error' not in tile_results:
+                summary_data.append({
+                    'tile_name': tile_name,
+                    'n_cells': tile_results['n_cells'],
+                    'n_scs': tile_results['n_scs'],
+                    'status': 'success'
+                })
+            else:
+                summary_data.append({
+                    'tile_name': tile_name,
+                    'n_cells': 0,
+                    'n_scs': 0,
+                    'status': f"error: {tile_results['error']}"
+                })
+        
+        # Create summary DataFrame
+        summary_df = pd.DataFrame(summary_data)
+        summary_path = output_dir / 'individual_tile_summary.csv'
+        summary_df.to_csv(summary_path, index=False)
+        
+        # Print summary
+        successful_tiles = summary_df[summary_df['status'] == 'success']
+        print(f"Successfully processed: {len(successful_tiles)}/{len(summary_df)} tiles")
+        if len(successful_tiles) > 0:
+            print(f"Average cells per tile: {successful_tiles['n_cells'].mean():.0f}")
+            print(f"Average SCs per tile: {successful_tiles['n_scs'].mean():.1f}")
+        
+        print(f"Summary saved to: {summary_path}")
+    
+    def _create_aggregated_summary(self, adata: ad.AnnData, output_dir: Path):
+        """Create summary statistics for aggregated processing."""
+        print("\n" + "=" * 60)
+        print("CREATING AGGREGATED SUMMARY")
+        print("=" * 60)
+        
+        # Tile-level statistics
+        tile_stats = []
+        for tile_name in adata.obs['tile_name'].unique():
+            tile_mask = adata.obs['tile_name'] == tile_name
+            tile_cells = tile_mask.sum()
+            tile_scs = adata.obs['spatial_context_filtered'][tile_mask].nunique()
+            
+            tile_stats.append({
+                'tile_name': tile_name,
+                'n_cells': tile_cells,
+                'n_scs': tile_scs
+            })
+        
+        tile_stats_df = pd.DataFrame(tile_stats)
+        tile_stats_path = output_dir / 'aggregated_tile_statistics.csv'
+        tile_stats_df.to_csv(tile_stats_path, index=False)
+        
+        # SC-level statistics
+        sc_stats = adata.obs['spatial_context_filtered'].value_counts()
+        sc_stats_path = output_dir / 'aggregated_sc_statistics.csv'
+        sc_stats.to_csv(sc_stats_path)
+        
+        print(f"Total tiles: {len(tile_stats_df)}")
+        print(f"Total cells: {adata.n_obs}")
+        print(f"Total SCs: {len(sc_stats)}")
+        print(f"Tile statistics saved to: {tile_stats_path}")
+        print(f"SC statistics saved to: {sc_stats_path}")
+
+
 # Example usage function
 def main():
     """
-    Example usage of SpatialContextDetector.
+    Example usage of SpatialContextDetector for multiple files.
 
     Prerequisites:
-    - Run data_preparation.py to create AnnData from JSON
-    - Run cn_kmeans_tiled.py to detect CNs
+    - Run cn_batch_kmeans.py to detect CNs in multiple tiles
+    - Processed h5ad files should be in cn_batch_results/processed_h5ad/
+    """
+    # Configuration
+    batch_results_dir = '/mnt/c/ProgramData/github_repo/image_analysis_scripts/neighborhood_composition/cellular_neighborhoods/cn_batch_results'
+    output_dir = 'batch_spatial_contexts'
+    
+    print("=" * 80)
+    print("BATCH SPATIAL CONTEXT DETECTION")
+    print("=" * 80)
+    print(f"Batch results directory: {batch_results_dir}")
+    print(f"Output directory: {output_dir}")
+    print("=" * 80)
+    
+    try:
+        # Initialize batch processor
+        processor = BatchSpatialContextProcessor(
+            batch_results_dir=batch_results_dir,
+            output_dir=output_dir
+        )
+        
+        print(f"Found {len(processor.file_paths)} processed tiles")
+        
+        # Choose processing mode
+        print("\nChoose processing mode:")
+        print("1. Individual tile processing (each tile processed separately)")
+        print("2. Aggregated processing (all tiles combined)")
+        
+        # For this example, we'll do both
+        print("\n" + "="*60)
+        print("RUNNING INDIVIDUAL TILE PROCESSING")
+        print("="*60)
+        
+        individual_results = processor.process_individual_tiles(
+            k=40,
+            threshold=0.9,
+            min_cells=100,
+            img_id_key='tile_name',
+            graph_layout='spring'
+        )
+        
+        print("\n" + "="*60)
+        print("RUNNING AGGREGATED PROCESSING")
+        print("="*60)
+        
+        aggregated_results = processor.process_aggregated_tiles(
+            k=40,
+            threshold=0.9,
+            min_cells=100,
+            min_groups=2,  # SC must appear in at least 2 tiles
+            group_key='tile_name',
+            img_id_key='tile_name',
+            graph_layout='spring',
+            coord_offset=True
+        )
+        
+        print("\n" + "="*80)
+        print("BATCH PROCESSING COMPLETE!")
+        print("="*80)
+        print(f"Individual processing: {len([r for r in individual_results.values() if 'error' not in r])} tiles successful")
+        print(f"Aggregated processing: {aggregated_results['n_tiles']} tiles, {aggregated_results['n_cells']} cells, {aggregated_results['n_scs']} SCs")
+        print(f"Results saved to: {output_dir}/")
+        
+    except Exception as e:
+        print(f"Error in batch processing: {str(e)}")
+        return
+
+
+def main_single_file():
+    """
+    Example usage for single file processing (original functionality).
     """
     # Input file configuration
-    # This should be the output from cn_kmeans_tiled.py
     input_file = '../cellular_neighborhoods/cn/tile_39520_7904_adata_cns.h5ad'
     output_dir = 'sp_contexts'
 
