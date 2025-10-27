@@ -288,6 +288,7 @@ class SpatialContextDetector:
     def detect_spatial_contexts(
         self,
         threshold: float = 0.9,
+        min_fraction: float = 0.05,
         aggregated_key: str = 'aggregated_cn_fractions',
         output_key: str = 'spatial_context'
     ):
@@ -298,18 +299,21 @@ class SpatialContextDetector:
         Algorithm:
         1. For each cell, sort CN fractions from high to low
         2. Add CNs cumulatively until sum >= threshold
-        3. SC label = sorted CN IDs joined by "_" (e.g., "1_2", "2_4_5")
+        3. Only include CNs with fraction >= min_fraction
+        4. SC label = sorted CN IDs joined by "_" (e.g., "1_2", "2_4_5")
 
         Parameters:
         -----------
         threshold : float, default=0.9
             Cumulative fraction threshold for SC assignment
+        min_fraction : float, default=0.05
+            Minimum individual CN fraction to be included (filters out noise)
         aggregated_key : str
             Key in adata.obsm containing aggregated CN fractions
         output_key : str
             Key to store SC labels in adata.obs
         """
-        print(f"Detecting spatial contexts (threshold={threshold})...")
+        print(f"Detecting spatial contexts (threshold={threshold}, min_fraction={min_fraction})...")
 
         # Get aggregated CN fractions
         aggregated = self.adata.obsm[aggregated_key]
@@ -332,13 +336,22 @@ class SpatialContextDetector:
             selected_cns = []
 
             for cn, frac in zip(sorted_cns, sorted_fractions):
+                # Skip CNs with very small fractions (noise filtering)
+                if frac < min_fraction:
+                    break
+                
                 cumsum += frac
                 selected_cns.append(str(cn))
 
+                # Stop when we reach the threshold
                 if cumsum >= threshold:
                     break
 
-            # Create SC label by joining CN IDs
+            # If no CNs meet the criteria, use the top CN
+            if not selected_cns:
+                selected_cns.append(str(sorted_cns[0]))
+
+            # Create SC label by joining CN IDs (sorted by fraction)
             sc_label = '_'.join(selected_cns)
             sc_labels.append(sc_label)
 
@@ -761,6 +774,7 @@ class SpatialContextDetector:
         self,
         k: int = 40,
         threshold: float = 0.9,
+        min_fraction: float = 0.05,
         min_cells: int = 100,
         min_groups: Optional[int] = None,
         group_key: Optional[str] = None,
@@ -777,6 +791,8 @@ class SpatialContextDetector:
             Number of nearest neighbors for SC detection
         threshold : float, default=0.9
             Cumulative CN fraction threshold for SC assignment
+        min_fraction : float, default=0.05
+            Minimum individual CN fraction to be included
         min_cells : int, default=100
             Minimum cells for SC to be retained
         min_groups : int, optional
@@ -803,7 +819,7 @@ class SpatialContextDetector:
         self.aggregate_cn_fractions()
 
         # Step 3: Detect spatial contexts
-        self.detect_spatial_contexts(threshold=threshold)
+        self.detect_spatial_contexts(threshold=threshold, min_fraction=min_fraction)
 
         # Step 4: Filter rare SCs
         self.filter_spatial_contexts(
@@ -866,8 +882,12 @@ def main():
         help='Number of nearest neighbors for SC detection (default: 40)'
     )
     parser.add_argument(
-        '--threshold', '-t', type=float, default=0.9,
+        '--threshold', '-t', type=float, default=0.6,
         help='Cumulative CN fraction threshold for SC assignment (default: 0.9)'
+    )
+    parser.add_argument(
+        '--min_fraction', '-f', type=float, default=0.05,
+        help='Minimum individual CN fraction to be included (default: 0.05)'
     )
     parser.add_argument(
         '--min_cells', '-m', type=int, default=100,
@@ -895,7 +915,7 @@ def main():
     print("=" * 80)
     print(f"CN results directory: {args.cn_results_dir}")
     print(f"Output directory: {args.output_dir}")
-    print(f"Parameters: k={args.k}, threshold={args.threshold}, min_cells={args.min_cells}")
+    print(f"Parameters: k={args.k}, threshold={args.threshold}, min_fraction={args.min_fraction}, min_cells={args.min_cells}")
     if args.min_groups:
         print(f"Min groups: {args.min_groups}")
     print("=" * 80)
@@ -918,6 +938,7 @@ def main():
         detector.run_full_pipeline(
             k=args.k,
             threshold=args.threshold,
+            min_fraction=args.min_fraction,
             min_cells=args.min_cells,
             min_groups=args.min_groups,
             group_key='tile_name' if args.min_groups else None,
