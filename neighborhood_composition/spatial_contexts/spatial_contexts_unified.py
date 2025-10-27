@@ -613,20 +613,20 @@ class SpatialContextDetector:
         self,
         sc_key: str = 'spatial_context_filtered',
         layout: str = 'spring',
-        figsize: Tuple[int, int] = (12, 10),
-        node_size_scale: float = 0.5,
-        edge_width_scale: float = 0.01,
+        figsize: Tuple[int, int] = (14, 12),
+        node_size_scale: float = 1.5,
+        edge_width_scale: float = 0.002,
         save_path: Optional[str] = None
     ):
         """
-        Visualize SC interaction graph (similar to Fig 19b).
+        Visualize SC interaction graph with improved aesthetics (similar to Fig 19b).
 
         Parameters:
         -----------
         sc_key : str
             Key in adata.obs containing SC labels
         layout : str, default='spring'
-            Graph layout algorithm ('spring', 'kamada_kawai', or 'circular')
+            Graph layout algorithm ('spring', 'kamada_kawai', 'hierarchical', or 'circular')
         figsize : tuple
             Figure size (width, height)
         node_size_scale : float
@@ -644,69 +644,159 @@ class SpatialContextDetector:
 
         G = self.sc_graph
 
-        # Compute layout
+        # Compute layout with better spacing
         if layout == 'spring':
-            pos = nx.spring_layout(G, k=2, iterations=50, seed=42)
+            pos = nx.spring_layout(G, k=3, iterations=100, seed=42)
         elif layout == 'kamada_kawai':
             pos = nx.kamada_kawai_layout(G)
+        elif layout == 'hierarchical':
+            # Group nodes by number of CNs for hierarchical layout
+            layers = {}
+            for node in G.nodes():
+                n_cns = len(node.split('_'))
+                if n_cns not in layers:
+                    layers[n_cns] = []
+                layers[n_cns].append(node)
+            
+            pos = {}
+            y_spacing = 1.0 / (len(layers) + 1)
+            for layer_idx, (n_cns, nodes) in enumerate(sorted(layers.items())):
+                y = 1.0 - (layer_idx + 1) * y_spacing
+                x_spacing = 1.0 / (len(nodes) + 1)
+                for node_idx, node in enumerate(sorted(nodes)):
+                    x = (node_idx + 1) * x_spacing
+                    pos[node] = (x, y)
         elif layout == 'circular':
             pos = nx.circular_layout(G)
         else:
             raise ValueError(f"Unknown layout: {layout}")
 
-        # Prepare node sizes based on cell counts
-        node_sizes = [G.nodes[node]['size'] * node_size_scale for node in G.nodes()]
-
+        # Get node sizes and normalize
+        node_sizes = [G.nodes[node]['size'] for node in G.nodes()]
+        max_size = max(node_sizes) if node_sizes else 1
+        min_size = min(node_sizes) if node_sizes else 1
+        
+        # Scale node sizes (larger range for better visibility)
+        scaled_sizes = []
+        for size in node_sizes:
+            if max_size > min_size:
+                # Normalize to 0-1 range, then scale
+                normalized = (size - min_size) / (max_size - min_size)
+                scaled_size = 300 + normalized * 2700  # Range: 300-3000
+            else:
+                scaled_size = 1500
+            scaled_sizes.append(scaled_size * node_size_scale)
+        
+        # Create color map based on cell counts (like reference image)
+        node_colors = []
+        for node in G.nodes():
+            size = G.nodes[node]['size']
+            # Normalize to 0-1 range for color mapping
+            if max_size > min_size:
+                norm_value = (size - min_size) / (max_size - min_size)
+            else:
+                norm_value = 0.5
+            node_colors.append(norm_value)
+        
         # Prepare edge widths based on interaction counts
-        edge_widths = [G.edges[edge]['weight'] * edge_width_scale for edge in G.edges()]
+        edge_weights = [G.edges[edge]['weight'] for edge in G.edges()]
+        max_weight = max(edge_weights) if edge_weights else 1
+        min_weight = min(edge_weights) if edge_weights else 1
+        
+        edge_widths = []
+        for weight in edge_weights:
+            if max_weight > min_weight:
+                normalized = (weight - min_weight) / (max_weight - min_weight)
+                edge_width = 0.5 + normalized * 4.5  # Range: 0.5-5
+            else:
+                edge_width = 2.5
+            edge_widths.append(edge_width)
 
-        # Create figure
-        fig, ax = plt.subplots(figsize=figsize)
+        # Create figure with white background
+        fig, ax = plt.subplots(figsize=figsize, facecolor='white')
+        ax.set_facecolor('white')
 
-        # Draw graph
-        nx.draw_networkx_nodes(
-            G, pos,
-            node_size=node_sizes,
-            node_color='lightblue',
-            alpha=0.7,
-            ax=ax
-        )
-
+        # Draw edges first (so they're behind nodes)
         nx.draw_networkx_edges(
             G, pos,
             width=edge_widths,
-            alpha=0.5,
-            edge_color='gray',
+            alpha=0.4,
+            edge_color='black',
             ax=ax
         )
 
-        nx.draw_networkx_labels(
+        # Draw nodes with color gradient
+        nodes = nx.draw_networkx_nodes(
             G, pos,
-            font_size=9,
-            font_weight='bold',
+            node_size=scaled_sizes,
+            node_color=node_colors,
+            cmap='viridis',  # Similar to reference image color scheme
+            vmin=0,
+            vmax=1,
+            alpha=0.9,
+            edgecolors='black',
+            linewidths=1.5,
             ax=ax
         )
 
-        ax.set_title('Spatial Context Interaction Network',
-                     fontsize=16, fontweight='bold', pad=20)
-        ax.axis('off')
-
-        # Add legend for node/edge meaning
-        legend_text = (
-            f"Nodes: Spatial Contexts (size ∝ cell count)\n"
-            f"Edges: Shared neighborhoods (width ∝ interaction frequency)\n"
-            f"Total SCs: {G.number_of_nodes()}, Interactions: {G.number_of_edges()}"
+        # Draw labels with white background for readability
+        labels = nx.draw_networkx_labels(
+            G, pos,
+            font_size=10,
+            font_weight='bold',
+            font_color='white',
+            ax=ax
         )
-        ax.text(0.02, 0.98, legend_text,
-                transform=ax.transAxes,
-                verticalalignment='top',
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8),
-                fontsize=10)
+
+        # Add colorbar for node colors
+        sm = plt.cm.ScalarMappable(
+            cmap='viridis',
+            norm=plt.Normalize(vmin=min_size, vmax=max_size)
+        )
+        sm.set_array([])
+        cbar = plt.colorbar(sm, ax=ax, fraction=0.03, pad=0.02)
+        cbar.set_label('n_cells', rotation=270, labelpad=20, fontsize=12, fontweight='bold')
+
+        # Add legend for node groups (number of CNs)
+        unique_n_cns = sorted(set(len(node.split('_')) for node in G.nodes()))
+        legend_elements = []
+        for n_cn in unique_n_cns:
+            # Size for legend
+            if n_cn == 1:
+                legend_size = 6
+            elif n_cn == 2:
+                legend_size = 9
+            elif n_cn == 3:
+                legend_size = 12
+            else:
+                legend_size = 15
+            
+            legend_elements.append(
+                plt.scatter([], [], s=legend_size**2, c='gray', 
+                           edgecolors='black', linewidths=1.5,
+                           label=str(n_cn))
+            )
+        
+        legend = ax.legend(
+            handles=legend_elements,
+            title='n_group',
+            loc='upper right',
+            frameon=True,
+            fancybox=True,
+            shadow=True,
+            title_fontsize=11,
+            fontsize=10
+        )
+        legend.get_frame().set_facecolor('white')
+        legend.get_frame().set_alpha(0.9)
+
+        ax.axis('off')
+        ax.margins(0.1)
 
         plt.tight_layout()
 
         if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
             print(f"  - Saved to: {save_path}")
 
         plt.close()
