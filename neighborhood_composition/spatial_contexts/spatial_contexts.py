@@ -1246,7 +1246,7 @@ def main():
     - Processed h5ad files should be in cn_batch_results/processed_h5ad/
     """
     # Configuration
-    batch_results_dir = '/mnt/c/ProgramData/github_repo/image_analysis_scripts/neighborhood_composition/cellular_neighborhoods/cn_batch_results'
+    batch_results_dir = '/mnt/c/ProgramData/github_repo/image_analysis_scripts/neighborhood_composition/spatial_contexts/selected_cn_batch_results'
     output_dir = 'batch_spatial_contexts'
     
     print("=" * 80)
