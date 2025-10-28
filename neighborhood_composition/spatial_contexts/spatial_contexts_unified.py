@@ -71,6 +71,53 @@ def discover_unified_cn_files(cn_results_dir: str) -> List[str]:
     return sorted(file_paths)
 
 
+def standardize_sc_label(sc_label: str) -> str:
+    """
+    Standardize spatial context label by sorting CN numbers numerically.
+    
+    Labels with the same numbers in different order (e.g., '6_5_3_2' and '6_2_5_3') 
+    represent the same spatial context and should be standardized to the same string.
+    
+    Parameters:
+    -----------
+    sc_label : str
+        SC label string (e.g., '6_5_3_2' or '2_6_3_5')
+        
+    Returns:
+    --------
+    standardized_label : str
+        Standardized SC label with numbers sorted (e.g., '2_3_5_6')
+        
+    Examples:
+    ---------
+    >>> standardize_sc_label('6_5_3_2')
+    '2_3_5_6'
+    >>> standardize_sc_label('2_6_3_5')
+    '2_3_5_6'
+    >>> standardize_sc_label('1')
+    '1'
+    >>> standardize_sc_label('Other')
+    'Other'
+    """
+    # Handle special cases
+    if not sc_label or sc_label == 'Other':
+        return sc_label
+    
+    try:
+        # Split by underscore and convert to integers
+        numbers = [int(x) for x in sc_label.split('_')]
+        
+        # Sort numerically
+        numbers.sort()
+        
+        # Join back with underscores
+        return '_'.join(map(str, numbers))
+        
+    except (ValueError, AttributeError):
+        # If conversion fails, return original label
+        return sc_label
+
+
 def load_unified_cn_data(file_paths: List[str], coord_offset: bool = False) -> ad.AnnData:
     """
     Load and combine processed h5ad files from unified CN detection.
@@ -353,7 +400,9 @@ class SpatialContextDetector:
 
             # Create SC label by joining CN IDs (sorted by fraction)
             sc_label = '_'.join(selected_cns)
-            sc_labels.append(sc_label)
+            # Standardize the label to ensure consistent ordering
+            standardized_label = standardize_sc_label(sc_label)
+            sc_labels.append(standardized_label)
 
         # Store SC labels
         self.sc_labels = pd.Categorical(sc_labels)
@@ -368,16 +417,16 @@ class SpatialContextDetector:
 
         return self
 
-    def filter_spatial_contexts(
+    def get_filtered_scs(
         self,
         min_cells: int = 100,
         min_groups: Optional[int] = None,
         group_key: Optional[str] = None,
-        sc_key: str = 'spatial_context',
-        filtered_key: str = 'spatial_context_filtered'
-    ):
+        sc_key: str = 'spatial_context'
+    ) -> set:
         """
-        Filter out rare spatial contexts based on cell count and group occurrence.
+        Get the set of SCs that pass the filtering criteria (for graph visualization only).
+        This does NOT modify the data, just returns which SCs should be shown in the graph.
 
         Parameters:
         -----------
@@ -389,10 +438,13 @@ class SpatialContextDetector:
             Key in adata.obs containing group identifiers (e.g., 'tile_name')
         sc_key : str
             Key in adata.obs containing SC labels
-        filtered_key : str
-            Key to store filtered SC labels
+
+        Returns:
+        --------
+        valid_scs : set
+            Set of SC labels that pass all filtering criteria
         """
-        print(f"Filtering spatial contexts...")
+        print(f"Determining SCs for graph visualization...")
         print(f"  - Minimum cells: {min_cells}")
         if min_groups is not None and group_key is not None:
             print(f"  - Minimum groups ({group_key}): {min_groups}")
@@ -400,29 +452,107 @@ class SpatialContextDetector:
         sc_labels = self.adata.obs[sc_key].values
         sc_counts = pd.Series(sc_labels).value_counts()
 
-        # Filter by cell count
-        valid_scs = set(sc_counts[sc_counts >= min_cells].index)
-        print(f"  - SCs passing cell count filter: {len(valid_scs)}")
+        # Start with all SCs
+        valid_scs = set(sc_counts.index)
+        print(f"  - Total SCs before filtering: {len(valid_scs)}")
 
-        # Filter by group occurrence if specified
-        if min_groups is not None and group_key is not None:
+        # Apply cell count filter
+        if min_cells > 0:
+            cell_valid = set(sc_counts[sc_counts >= min_cells].index)
+            valid_scs = valid_scs.intersection(cell_valid)
+            print(f"  - SCs passing cell count filter: {len(valid_scs)}")
+
+        # Apply group occurrence filter
+        if min_groups is not None and group_key is not None and min_groups > 0:
             if group_key not in self.adata.obs.columns:
                 print(f"  WARNING: group_key '{group_key}' not found, skipping group filter")
             else:
                 # Count groups for each SC
                 sc_group_counts = self.adata.obs.groupby(sc_key)[group_key].nunique()
-                valid_scs = set(sc_group_counts[sc_group_counts >= min_groups].index)
+                group_valid = set(sc_group_counts[sc_group_counts >= min_groups].index)
+                valid_scs = valid_scs.intersection(group_valid)
                 print(f"  - SCs passing group filter: {len(valid_scs)}")
 
-        # Create filtered labels (set rare SCs to 'Other')
-        filtered_labels = [sc if sc in valid_scs else 'Other' for sc in sc_labels]
-        self.adata.obs[filtered_key] = pd.Categorical(filtered_labels)
+        print(f"  - Final SCs for graph visualization: {len(valid_scs)}")
+        return valid_scs
 
-        n_other = sum([1 for sc in filtered_labels if sc == 'Other'])
-        print(f"  - Cells assigned to 'Other': {n_other}")
-        print(f"  - Final number of SCs: {len(valid_scs)}")
+    def filter_spatial_contexts(
+        self,
+        min_cells: int = 100,
+        min_groups: Optional[int] = None,
+        group_key: Optional[str] = None,
+        sc_key: str = 'spatial_context',
+        filtered_key: str = 'spatial_context_filtered'
+    ):
+        """
+        Create a copy of SC labels for visualization purposes only.
+        This does NOT filter the data - all SCs are kept in the original data.
+
+        Parameters:
+        -----------
+        min_cells : int, default=100
+            Minimum number of cells for an SC to be retained (for graph only)
+        min_groups : int, optional
+            Minimum number of groups (e.g., tiles) an SC must appear in (for graph only)
+        group_key : str, optional
+            Key in adata.obs containing group identifiers (e.g., 'tile_name')
+        sc_key : str
+            Key in adata.obs containing SC labels
+        filtered_key : str
+            Key to store visualization labels (same as original for now)
+        """
+        print(f"Preparing SC labels for visualization...")
+        
+        # Just copy the original labels - no filtering applied to data
+        sc_labels = self.adata.obs[sc_key].values
+        self.adata.obs[filtered_key] = pd.Categorical(sc_labels)
+        
+        print(f"  - All {len(pd.Series(sc_labels).value_counts())} SCs kept in data")
+        print(f"  - Filtering will be applied only to graph visualization")
 
         return self
+
+    def _should_connect_hierarchically(self, sc1: str, sc2: str) -> bool:
+        """
+        Determine if two SCs should be connected based on hierarchical rules.
+        
+        Rules:
+        1. Only connect nodes in adjacent rows (differ by exactly 1 CN)
+        2. The node with more CNs must contain ALL numbers from the node with fewer CNs
+        3. Example: '2_4_6' can connect to '2_3_4_6' or '2_4_5_6' but not '1_2_5_6'
+        
+        Parameters:
+        -----------
+        sc1 : str
+            First SC label (e.g., '2_4_6')
+        sc2 : str
+            Second SC label (e.g., '2_3_4_6')
+            
+        Returns:
+        --------
+        bool
+            True if the SCs should be connected
+        """
+        try:
+            # Parse SC labels into sets of numbers
+            nums1 = set(int(x) for x in sc1.split('_'))
+            nums2 = set(int(x) for x in sc2.split('_'))
+            
+            # Check if they differ by exactly 1 CN (adjacent rows)
+            if abs(len(nums1) - len(nums2)) != 1:
+                return False
+            
+            # The larger set must contain all numbers from the smaller set
+            if len(nums1) < len(nums2):
+                # sc1 is smaller, sc2 must contain all of sc1's numbers
+                return nums1.issubset(nums2)
+            else:
+                # sc2 is smaller, sc1 must contain all of sc2's numbers
+                return nums2.issubset(nums1)
+                
+        except (ValueError, AttributeError):
+            # If parsing fails, don't connect
+            return False
 
     def visualize_spatial_contexts(
         self,
@@ -432,7 +562,8 @@ class SpatialContextDetector:
         point_size: float = 2.0,
         palette: str = 'tab20',
         figsize: Optional[Tuple[int, int]] = None,
-        save_path: Optional[str] = None
+        save_path: Optional[str] = None,
+        filtered_scs: Optional[set] = None
     ):
         """
         Visualize spatial contexts spatially (similar to Fig 19a).
@@ -478,7 +609,23 @@ class SpatialContextDetector:
 
         # Get SC labels
         sc_labels = self.adata.obs[sc_key].values
+        
+        # Filter SCs if specified
+        if filtered_scs is not None:
+            # Only show filtered SCs, set others to 'Other'
+            filtered_sc_labels = []
+            for sc in sc_labels:
+                if sc in filtered_scs:
+                    filtered_sc_labels.append(sc)
+                else:
+                    filtered_sc_labels.append('Other')
+            sc_labels = np.array(filtered_sc_labels)
+        
         unique_scs = sorted([sc for sc in self.adata.obs[sc_key].cat.categories if sc != 'Other'])
+        
+        # If filtering is applied, only show filtered SCs
+        if filtered_scs is not None:
+            unique_scs = [sc for sc in unique_scs if sc in filtered_scs]
 
         # Add 'Other' to end if it exists
         if 'Other' in self.adata.obs[sc_key].cat.categories:
@@ -526,6 +673,26 @@ class SpatialContextDetector:
         for idx in range(n_images, len(axes)):
             fig.delaxes(axes[idx])
 
+        # Add a single legend for all subplots
+        if n_scs > 0:
+            # Create legend handles
+            legend_handles = []
+            for sc in unique_scs:
+                if sc in color_map:
+                    legend_handles.append(
+                        plt.Line2D([0], [0], marker='o', color='w', 
+                                  markerfacecolor=color_map[sc], markersize=8, 
+                                  label=f'SC {sc}')
+                    )
+            
+            # Add legend to the figure
+            fig.legend(handles=legend_handles, 
+                      loc='center left', 
+                      bbox_to_anchor=(1.02, 0.5),
+                      title='Spatial Contexts',
+                      fontsize=10,
+                      title_fontsize=12)
+
         plt.tight_layout()
 
         if save_path:
@@ -539,7 +706,8 @@ class SpatialContextDetector:
     def build_sc_interaction_graph(
         self,
         sc_key: str = 'spatial_context_filtered',
-        connectivity_key: str = 'spatial_connectivities_sc'
+        connectivity_key: str = 'spatial_connectivities_sc',
+        filtered_scs: Optional[set] = None
     ) -> nx.Graph:
         """
         Build interaction graph between spatial contexts.
@@ -569,17 +737,17 @@ class SpatialContextDetector:
         # Count cells in each SC
         sc_counts = pd.Series(sc_labels).value_counts().to_dict()
 
-        # Add nodes (SCs) with cell counts
+        # Add nodes (SCs) with cell counts - only include filtered SCs
         for sc, count in sc_counts.items():
-            if sc != 'Other':  # Skip 'Other' category
+            if sc != 'Other' and (filtered_scs is None or sc in filtered_scs):
                 G.add_node(sc, size=count)
 
-        # Count interactions between SCs
+        # Count interactions between SCs with hierarchical connection logic
         interaction_counts = {}
 
         for i in range(len(sc_labels)):
             sc_i = sc_labels[i]
-            if sc_i == 'Other':
+            if sc_i == 'Other' or (filtered_scs is not None and sc_i not in filtered_scs):
                 continue
 
             # Get neighbors
@@ -588,15 +756,17 @@ class SpatialContextDetector:
 
             # Count interactions with other SCs
             for sc_j in neighbor_scs:
-                if sc_j == 'Other' or sc_j == sc_i:
+                if sc_j == 'Other' or sc_j == sc_i or (filtered_scs is not None and sc_j not in filtered_scs):
                     continue
 
-                # Create edge key (sorted to avoid duplicates)
-                edge = tuple(sorted([sc_i, sc_j]))
+                # Apply hierarchical connection logic
+                if self._should_connect_hierarchically(sc_i, sc_j):
+                    # Create edge key (sorted to avoid duplicates)
+                    edge = tuple(sorted([sc_i, sc_j]))
 
-                if edge not in interaction_counts:
-                    interaction_counts[edge] = 0
-                interaction_counts[edge] += 1
+                    if edge not in interaction_counts:
+                        interaction_counts[edge] = 0
+                    interaction_counts[edge] += 1
 
         # Add edges with weights
         for (sc1, sc2), count in interaction_counts.items():
@@ -612,21 +782,22 @@ class SpatialContextDetector:
     def plot_sc_graph(
         self,
         sc_key: str = 'spatial_context_filtered',
-        layout: str = 'spring',
-        figsize: Tuple[int, int] = (14, 12),
-        node_size_scale: float = 1.5,
+        layout: str = 'hierarchical',
+        figsize: Tuple[int, int] = (16, 10),
+        node_size_scale: float = 1.0,
         edge_width_scale: float = 0.002,
         save_path: Optional[str] = None
     ):
         """
-        Visualize SC interaction graph with improved aesthetics (similar to Fig 19b).
+        Visualize SC interaction graph with hierarchical row-based layout.
+        Each row represents SCs with the same number of CNs.
 
         Parameters:
         -----------
         sc_key : str
             Key in adata.obs containing SC labels
-        layout : str, default='spring'
-            Graph layout algorithm ('spring', 'kamada_kawai', 'hierarchical', or 'circular')
+        layout : str, default='hierarchical'
+            Graph layout algorithm (recommended: 'hierarchical')
         figsize : tuple
             Figure size (width, height)
         node_size_scale : float
@@ -644,54 +815,71 @@ class SpatialContextDetector:
 
         G = self.sc_graph
 
-        # Compute layout with better spacing
-        if layout == 'spring':
-            pos = nx.spring_layout(G, k=3, iterations=100, seed=42)
-        elif layout == 'kamada_kawai':
-            pos = nx.kamada_kawai_layout(G)
-        elif layout == 'hierarchical':
-            # Group nodes by number of CNs for hierarchical layout
-            layers = {}
-            for node in G.nodes():
-                n_cns = len(node.split('_'))
-                if n_cns not in layers:
-                    layers[n_cns] = []
-                layers[n_cns].append(node)
-            
-            pos = {}
-            y_spacing = 1.0 / (len(layers) + 1)
-            for layer_idx, (n_cns, nodes) in enumerate(sorted(layers.items())):
-                y = 1.0 - (layer_idx + 1) * y_spacing
-                x_spacing = 1.0 / (len(nodes) + 1)
-                for node_idx, node in enumerate(sorted(nodes)):
-                    x = (node_idx + 1) * x_spacing
-                    pos[node] = (x, y)
-        elif layout == 'circular':
-            pos = nx.circular_layout(G)
+        # Always use hierarchical layout for clean row-based organization
+        # Group nodes by number of CNs
+        layers = {}
+        node_to_layer = {}  # Track which layer each node belongs to
+        for node in G.nodes():
+            n_cns = len(node.split('_'))
+            if n_cns not in layers:
+                layers[n_cns] = []
+            layers[n_cns].append(node)
+            node_to_layer[node] = n_cns
+        
+        # Sort nodes within each layer alphabetically
+        for n_cns in layers:
+            layers[n_cns] = sorted(layers[n_cns])
+        
+        # Create hierarchical positions with proper spacing
+        pos = {}
+        n_layers = len(layers)
+        
+        # Calculate Y positions (evenly spaced from top to bottom)
+        if n_layers == 1:
+            y_positions = [0.5]
         else:
-            raise ValueError(f"Unknown layout: {layout}")
+            # Space rows evenly from 0.9 (top) to 0.1 (bottom)
+            y_positions = [0.9 - i * (0.8 / (n_layers - 1)) for i in range(n_layers)]
+        
+        for layer_idx, (n_cns, nodes) in enumerate(sorted(layers.items())):
+            # Y position from top to bottom
+            y = y_positions[layer_idx]
+            
+            # X positions with even spacing
+            n_nodes = len(nodes)
+            if n_nodes == 1:
+                x_positions = [0.5]
+            else:
+                # Spread nodes evenly across the width with margins
+                margin = 0.08
+                x_spacing = (1.0 - 2 * margin) / (n_nodes - 1) if n_nodes > 1 else 0
+                x_positions = [margin + i * x_spacing for i in range(n_nodes)]
+            
+            for node_idx, node in enumerate(nodes):
+                pos[node] = (x_positions[node_idx], y)
 
         # Get node sizes and normalize
         node_sizes = [G.nodes[node]['size'] for node in G.nodes()]
         max_size = max(node_sizes) if node_sizes else 1
         min_size = min(node_sizes) if node_sizes else 1
         
-        # Scale node sizes (larger range for better visibility)
-        scaled_sizes = []
-        for size in node_sizes:
+        # Create size mapping for each node
+        node_size_dict = {}
+        for node in G.nodes():
+            size = G.nodes[node]['size']
             if max_size > min_size:
-                # Normalize to 0-1 range, then scale
                 normalized = (size - min_size) / (max_size - min_size)
-                scaled_size = 300 + normalized * 2700  # Range: 300-3000
+                scaled_size = 500 + normalized * 2000  # Range: 500-2500
             else:
                 scaled_size = 1500
-            scaled_sizes.append(scaled_size * node_size_scale)
+            node_size_dict[node] = scaled_size * node_size_scale
         
-        # Create color map based on cell counts (like reference image)
+        scaled_sizes = [node_size_dict[node] for node in G.nodes()]
+        
+        # Create color map based on cell counts
         node_colors = []
         for node in G.nodes():
             size = G.nodes[node]['size']
-            # Normalize to 0-1 range for color mapping
             if max_size > min_size:
                 norm_value = (size - min_size) / (max_size - min_size)
             else:
@@ -707,46 +895,64 @@ class SpatialContextDetector:
         for weight in edge_weights:
             if max_weight > min_weight:
                 normalized = (weight - min_weight) / (max_weight - min_weight)
-                edge_width = 0.5 + normalized * 4.5  # Range: 0.5-5
+                edge_width = 1.5 + normalized * 10.5  # Range: 1.5-12 (3x larger)
             else:
-                edge_width = 2.5
+                edge_width = 6.0  # 3x larger than 2.0
             edge_widths.append(edge_width)
 
         # Create figure with white background
         fig, ax = plt.subplots(figsize=figsize, facecolor='white')
         ax.set_facecolor('white')
 
-        # Draw edges first (so they're behind nodes)
-        nx.draw_networkx_edges(
-            G, pos,
-            width=edge_widths,
-            alpha=0.4,
-            edge_color='black',
-            ax=ax
-        )
+        # Draw all edges (hierarchical filtering already applied during graph building)
+        if G.edges():
+            nx.draw_networkx_edges(
+                G, pos,
+                width=edge_widths,
+                alpha=0.3,
+                edge_color='black',
+                ax=ax
+            )
+        
+        print(f"  - Edges drawn: {len(G.edges())} (hierarchical subset connections only)")
 
         # Draw nodes with color gradient
         nodes = nx.draw_networkx_nodes(
             G, pos,
             node_size=scaled_sizes,
             node_color=node_colors,
-            cmap='viridis',  # Similar to reference image color scheme
+            cmap='viridis',
             vmin=0,
             vmax=1,
-            alpha=0.9,
+            alpha=0.85,
             edgecolors='black',
-            linewidths=1.5,
+            linewidths=2.0,
             ax=ax
         )
 
-        # Draw labels with white background for readability
-        labels = nx.draw_networkx_labels(
-            G, pos,
-            font_size=10,
-            font_weight='bold',
-            font_color='white',
-            ax=ax
-        )
+        # Draw labels OUTSIDE the nodes, positioned above
+        for node in G.nodes():
+            x, y = pos[node]
+            # Calculate offset based on node size
+            node_size_pts = node_size_dict[node]
+            # Convert node size to data coordinates (approximate)
+            offset = 0.08  # Fixed offset above node
+            
+            ax.text(
+                x, y + offset,
+                node,
+                fontsize=9,
+                fontweight='bold',
+                ha='center',
+                va='bottom',
+                bbox=dict(
+                    boxstyle='round,pad=0.3',
+                    facecolor='white',
+                    edgecolor='black',
+                    linewidth=0.8,
+                    alpha=0.9
+                )
+            )
 
         # Add colorbar for node colors
         sm = plt.cm.ScalarMappable(
@@ -761,18 +967,18 @@ class SpatialContextDetector:
         unique_n_cns = sorted(set(len(node.split('_')) for node in G.nodes()))
         legend_elements = []
         for n_cn in unique_n_cns:
-            # Size for legend
+            # Size for legend proportional to actual sizes
             if n_cn == 1:
-                legend_size = 6
+                legend_size = 50
             elif n_cn == 2:
-                legend_size = 9
+                legend_size = 80
             elif n_cn == 3:
-                legend_size = 12
+                legend_size = 110
             else:
-                legend_size = 15
+                legend_size = 140
             
             legend_elements.append(
-                plt.scatter([], [], s=legend_size**2, c='gray', 
+                plt.scatter([], [], s=legend_size, c='gray', 
                            edgecolors='black', linewidths=1.5,
                            label=str(n_cn))
             )
@@ -791,7 +997,8 @@ class SpatialContextDetector:
         legend.get_frame().set_alpha(0.9)
 
         ax.axis('off')
-        ax.margins(0.1)
+        ax.set_xlim(-0.05, 1.05)
+        ax.set_ylim(-0.15, 1.15)
 
         plt.tight_layout()
 
@@ -911,31 +1118,39 @@ class SpatialContextDetector:
         # Step 3: Detect spatial contexts
         self.detect_spatial_contexts(threshold=threshold, min_fraction=min_fraction)
 
-        # Step 4: Filter rare SCs
+        # Step 4: Prepare SC labels (no filtering applied to data)
         self.filter_spatial_contexts(
             min_cells=min_cells,
             min_groups=min_groups,
             group_key=group_key
         )
 
-        # Step 5: Compute statistics
+        # Step 5: Compute statistics (all SCs included)
         stats_df = self.compute_sc_statistics()
         stats_df.to_csv(f'{output_dir}/sc_statistics.csv', index=False)
         print(f"\n  - Saved statistics to: {output_dir}/sc_statistics.csv")
 
-        # Step 6: Visualizations
+        # Step 6: Get filtered SCs for graph visualization only
+        filtered_scs = self.get_filtered_scs(
+            min_cells=min_cells,
+            min_groups=min_groups,
+            group_key=group_key
+        )
+
+        # Step 7: Visualizations
         print("\n" + "=" * 60)
         print("GENERATING VISUALIZATIONS")
         print("=" * 60)
 
-        # Spatial visualization
+        # Spatial visualization (filtered SCs only)
         self.visualize_spatial_contexts(
             img_id_key=img_id_key,
-            save_path=f'{output_dir}/spatial_contexts.png'
+            save_path=f'{output_dir}/spatial_contexts.png',
+            filtered_scs=filtered_scs
         )
 
-        # SC interaction graph
-        self.build_sc_interaction_graph()
+        # SC interaction graph (filtered SCs only)
+        self.build_sc_interaction_graph(filtered_scs=filtered_scs)
         self.plot_sc_graph(
             layout=graph_layout,
             save_path=f'{output_dir}/sc_interaction_graph.png'
@@ -972,11 +1187,11 @@ def main():
         help='Number of nearest neighbors for SC detection (default: 40)'
     )
     parser.add_argument(
-        '--threshold', '-t', type=float, default=0.6,
+        '--threshold', '-t', type=float, default=0.9,
         help='Cumulative CN fraction threshold for SC assignment (default: 0.9)'
     )
     parser.add_argument(
-        '--min_fraction', '-f', type=float, default=0.05,
+        '--min_fraction', '-f', type=float, default=0.1,
         help='Minimum individual CN fraction to be included (default: 0.05)'
     )
     parser.add_argument(
@@ -984,8 +1199,8 @@ def main():
         help='Minimum cells for SC to be retained (default: 100)'
     )
     parser.add_argument(
-        '--min_groups', type=int, default=None,
-        help='Minimum number of tiles an SC must appear in (default: None)'
+        '--min_groups', type=int, default=1,
+        help='Minimum number of tiles an SC must appear in (default: 3)'
     )
     parser.add_argument(
         '--coord_offset', action='store_true',
@@ -1005,9 +1220,7 @@ def main():
     print("=" * 80)
     print(f"CN results directory: {args.cn_results_dir}")
     print(f"Output directory: {args.output_dir}")
-    print(f"Parameters: k={args.k}, threshold={args.threshold}, min_fraction={args.min_fraction}, min_cells={args.min_cells}")
-    if args.min_groups:
-        print(f"Min groups: {args.min_groups}")
+    print(f"Parameters: k={args.k}, threshold={args.threshold}, min_fraction={args.min_fraction}, min_cells={args.min_cells}, min_groups={args.min_groups}")
     print("=" * 80)
 
     try:
@@ -1031,7 +1244,7 @@ def main():
             min_fraction=args.min_fraction,
             min_cells=args.min_cells,
             min_groups=args.min_groups,
-            group_key='tile_name' if args.min_groups else None,
+            group_key='tile_name',
             img_id_key='tile_name',
             output_dir=args.output_dir,
             graph_layout=args.graph_layout
@@ -1047,3 +1260,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+    

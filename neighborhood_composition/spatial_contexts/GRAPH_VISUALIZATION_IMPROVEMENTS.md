@@ -2,7 +2,17 @@
 
 ## Overview
 
-The SC interaction graph visualization has been significantly improved to match the aesthetic quality of published research figures.
+The SC interaction graph visualization has been completely redesigned with a clean hierarchical row-based layout that matches the aesthetic quality of published research figures.
+
+## 🎯 **NEW: Hierarchical Row-Based Layout**
+
+The graph now organizes spatial contexts in **rows based on CN complexity**:
+- **Row 1**: Single-CN contexts (e.g., `1`, `2`, `3`, `4`, `5`, `6`, `7`)
+- **Row 2**: Two-CN contexts (e.g., `1_6`, `2_4`, `3_5`)
+- **Row 3**: Three-CN contexts (e.g., `1_4_6`, `2_4_5`, `3_5_6`)
+- **Row N**: Complex multi-CN contexts (e.g., `1_2_4_6`, `2_4_5_6`)
+
+**Labels are positioned OUTSIDE the circles** (above each node) for clarity.
 
 ## Key Improvements
 
