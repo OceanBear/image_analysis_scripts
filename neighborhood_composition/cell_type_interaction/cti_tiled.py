@@ -791,7 +791,7 @@ def run_spatial_analysis_pipeline(adata_path, output_dir='spatial_analysis_resul
     # Enrichment heatmap
     visualize_enrichment(
         adata,
-        save_path=output_dir / 'neighborhood_enrichment.png',
+        save_path=output_dir / 'cell_type_interaction.png',
         n_neighbors=6,
         n_perms=n_perms
     )
@@ -880,7 +880,7 @@ if __name__ == "__main__":
     print("\n" + "=" * 70)
     print("ALL TESTS PASSED!")
     print("=" * 70)
-    print("\nThe following functions are ready to use in ne_multiple.py:")
+    print("\nThe following functions are ready to use in cti_multiple.py:")
     print("  1. save_intermediate_results() - Save zscore.npy and metadata.json")
     print("  2. load_intermediate_results() - Load from saved files")
     print("  3. aggregate_from_saved_results() - Aggregate multiple tiles from disk")

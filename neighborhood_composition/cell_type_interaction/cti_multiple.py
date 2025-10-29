@@ -28,8 +28,8 @@ from pathlib import Path
 # Set the working directory to the script's directory
 os.chdir(Path(__file__).parent)
 
-# Import functions from ne_tiled.py
-from ne_tiled import (
+# Import functions from cti_tiled.py
+from cti_tiled import (
     load_and_apply_cell_type_colors,
     build_spatial_graph,
     neighborhood_enrichment_analysis,

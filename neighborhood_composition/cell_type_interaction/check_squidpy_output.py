@@ -11,7 +11,7 @@ import os
 os.chdir(Path(__file__).parent)
 
 # Load one of your processed tiles
-tile_dirs = sorted(Path('neighborhood_composition/neighborhood_enrichment/multiple_tiles_analysis').glob('tile_*'))
+tile_dirs = sorted(Path('neighborhood_composition/cell_type_interaction/multiple_tiles_analysis').glob('tile_*'))
 
 if len(tile_dirs) == 0:
     print("No tile directories found!")

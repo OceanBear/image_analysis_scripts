@@ -7,7 +7,7 @@ import seaborn as sns
 from pathlib import Path
 # Set the working directory to the script's directory
 os.chdir(Path(__file__).parent)
-from ne_tiled import (
+from cti_tiled import (
     load_and_apply_cell_type_colors,
     build_spatial_graph,
     neighborhood_enrichment_analysis,
@@ -290,7 +290,7 @@ def run_wsi_spatial_analysis_pipeline(
     This pipeline handles datasets with 1M+ cells by:
     1. Subsampling to a manageable size for analysis
     2. Further subsampling for visualization
-    3. Reusing validated functions from ne_tiled.py
+    3. Reusing validated functions from cti_tiled.py
 
     Parameters:
     -----------
@@ -410,7 +410,7 @@ def run_wsi_spatial_analysis_pipeline(
         adata_analysis,
         n_neighbors=n_neighbors,
         n_perms=n_perms,
-        save_path=output_dir / 'neighborhood_enrichment.png'
+        save_path=output_dir / 'cell_type_interaction.png'
     )
 
     # ==================== STEP 7: Summarize Interactions ====================
@@ -445,7 +445,7 @@ def run_wsi_spatial_analysis_pipeline(
     print(f"  - Cells shown in visualization: {adata_vis.n_obs:,}")
     print(f"\nResults saved to: {output_dir}/")
     print(f"  - spatial_distribution.png")
-    print(f"  - neighborhood_enrichment.png")
+    print(f"  - cell_type_interaction.png")
     print(f"  - significant_interactions.csv")
     if save_adata:
         print(f"  - adata_wsi_with_spatial_analysis.h5ad")

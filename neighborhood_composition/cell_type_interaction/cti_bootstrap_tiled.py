@@ -31,7 +31,7 @@ from pathlib import Path
 os.chdir(Path(__file__).parent)
 
 # Import reusable functions from existing modules
-from ne_tiled import (
+from cti_tiled import (
     load_and_apply_cell_type_colors,
     build_spatial_graph,
     neighborhood_enrichment_analysis,

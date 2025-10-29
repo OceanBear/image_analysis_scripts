@@ -156,7 +156,7 @@ if __name__ == "__main__":
         possible_paths = [
             Path('multiple_tiles_analysis'),
             Path('bootstrap_multiple_analysis'),
-            Path('neighborhood_composition/neighborhood_enrichment/multiple_tiles_analysis'),
+            Path('neighborhood_composition/cell_type_interaction/multiple_tiles_analysis'),
         ]
 
         results_dir = None

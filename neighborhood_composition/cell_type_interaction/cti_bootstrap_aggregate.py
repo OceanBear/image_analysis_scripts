@@ -2,7 +2,7 @@
 Bootstrap Permutation Analysis - Aggregation Only
 
 This module aggregates intermediate bootstrap results from multiple tiles
-that have already been processed by ne_bootstrap_batch.py or ne_bootstrap_tiled.py.
+that have already been processed by cti_bootstrap_batch.py or cti_bootstrap_tiled.py.
 
 Key features:
 - Loads intermediate results from multiple tiles
@@ -35,7 +35,7 @@ import os
 os.chdir(Path(__file__).parent)
 
 # Import functions from ne_bootstrap_tiled
-from ne_bootstrap_tiled import (
+from cti_bootstrap_tiled import (
     load_bootstrap_intermediate_results
 )
 

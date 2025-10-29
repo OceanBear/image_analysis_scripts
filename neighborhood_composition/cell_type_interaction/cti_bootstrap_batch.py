@@ -4,7 +4,7 @@ Bootstrap Permutation Analysis for Multiple Tiles - Batch Processing Only
 This module processes multiple tiled h5ad files in batch, running hierarchical
 bootstrap-permutation analysis on each tile and saving intermediate results.
 
-For aggregation of results across tiles, use ne_bootstrap_aggregate.py
+For aggregation of results across tiles, use cti_bootstrap_aggregate.py
 
 Key features:
 - Batch processing of multiple tiles
@@ -17,7 +17,7 @@ Workflow:
 1. Find all h5ad files in directory
 2. Process each tile: bootstrap-permutation analysis
 3. Save intermediate results (.npy files + metadata.json)
-4. Use ne_bootstrap_aggregate.py to aggregate results
+4. Use cti_bootstrap_aggregate.py to aggregate results
 
 Author: Generated with Claude Code
 Date: 2025-10-23
@@ -38,7 +38,7 @@ import os
 os.chdir(Path(__file__).parent)
 
 # Import functions from ne_bootstrap_tiled
-from ne_bootstrap_tiled import (
+from cti_bootstrap_tiled import (
     run_bootstrap_permutation_analysis,
     save_bootstrap_intermediate_results,
     visualize_bootstrap_enrichment,
@@ -46,7 +46,7 @@ from ne_bootstrap_tiled import (
 )
 
 # Import functions from ne_tiled
-from ne_tiled import (
+from cti_tiled import (
     load_and_apply_cell_type_colors
 )
 
@@ -547,7 +547,7 @@ def run_bootstrap_multiple_pipeline(
     3. Saves intermediate results for each tile (.npy and .json files)
     4. Generates figures for each tile (if save_figures=True)
 
-    For aggregation of results across tiles, use ne_bootstrap_aggregate.py
+    For aggregation of results across tiles, use cti_bootstrap_aggregate.py
 
     Parameters:
     -----------
@@ -642,7 +642,7 @@ def run_bootstrap_multiple_pipeline(
     print(f"  - Skipped (already exist): {processing_summary['n_skipped']}")
     print(f"  - Failed: {processing_summary['n_failed']}")
     print(f"\nIntermediate results saved to: {output_dir}/")
-    print(f"\nNext step: Use ne_bootstrap_aggregate.py to aggregate results across tiles")
+    print(f"\nNext step: Use cti_bootstrap_aggregate.py to aggregate results across tiles")
 
     return processing_summary
 
@@ -713,5 +713,5 @@ This will:
 4. Generate visualizations with confidence intervals
 5. Identify and save significant interactions
 
-See ne_bootstrap_aggregate.py for more details.
+See cti_bootstrap_aggregate.py for more details.
 """)

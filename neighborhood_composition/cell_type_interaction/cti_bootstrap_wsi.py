@@ -35,7 +35,7 @@ from pathlib import Path
 os.chdir(Path(__file__).parent)
 
 # Import reusable functions from existing modules
-from ne_tiled import (
+from cti_tiled import (
     load_and_apply_cell_type_colors,
     build_spatial_graph,
     neighborhood_enrichment_analysis,
@@ -43,13 +43,13 @@ from ne_tiled import (
     summarize_interactions
 )
 
-from ne_wsi import (
+from cti_wsi import (
     subsample_adata,
     validate_subsampling
 )
 
 # Import visualization functions from bootstrap_tiled
-from ne_bootstrap_tiled import (
+from cti_bootstrap_tiled import (
     visualize_bootstrap_enrichment,
     visualize_bootstrap_comparison,
     summarize_bootstrap_interactions
@@ -473,7 +473,7 @@ def run_bootstrap_wsi_pipeline(
 
     # Spatial distribution (using separate visualization subsample)
     print(f"\nGenerating spatial distribution plot ({n_cells_visualization:,} cells)...")
-    from ne_tiled import visualize_spatial_distribution
+    from cti_tiled import visualize_spatial_distribution
     adata_vis = subsample_adata(adata_full, n_cells=n_cells_visualization, seed=seed)
     if f'{cluster_key}_colors' in adata_full.uns:
         adata_vis.uns[f'{cluster_key}_colors'] = adata_full.uns[f'{cluster_key}_colors']
