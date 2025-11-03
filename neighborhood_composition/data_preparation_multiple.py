@@ -207,7 +207,7 @@ def combine_multiple_tiles(json_paths, tile_positions=None):
 # Example usage
 if __name__ == "__main__":
     # Single tile analysis
-    #json_path = '/mnt/g/GDC-TCGA-LUAD/00a0b174-1eab-446a-ba8c-7c6e3acd7f0c/pred_00a0b174-1eab-446a-ba8c-7c6e3acd7f0c/json/tile_39520_7904.json'
+    #json_path = '/mnt/g/GDC-TCGA-LUAD/00a0b174-1eab-446a-ba8c-7c6e3acd7f0c/pred/json/tile_39520_7904.json'
     json_path = '/mnt/g/GDC-TCGA-LUAD/00a0b174-1eab-446a-ba8c-7c6e3acd7f0c/TCGA-MN-A4N4-01Z-00-DX2.9550732D-8FB1-43D9-B094-7C0CD310E9C0.json'
 
     adata = load_json_to_anndata(json_path)

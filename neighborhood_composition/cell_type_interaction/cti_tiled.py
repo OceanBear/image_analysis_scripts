@@ -792,7 +792,7 @@ def run_spatial_analysis_pipeline(adata_path, output_dir='spatial_analysis_resul
     visualize_enrichment(
         adata,
         save_path=output_dir / 'cell_type_interaction.png',
-        n_neighbors=6,
+        n_neighbors=n_neighbors,
         n_perms=n_perms
     )
 
@@ -826,7 +826,7 @@ if __name__ == "__main__":
     adata = run_spatial_analysis_pipeline(
         adata_path=adata_path,
         output_dir='spatial_analysis_results',
-        n_neighbors=6,
+        n_neighbors=20,  # was 6
         radius=50,  # Adjust based on your tissue/magnification
         n_perms=1000,
         save_adata=False,  # Set to True to save the h5ad file

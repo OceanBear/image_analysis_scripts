@@ -549,7 +549,7 @@ def main():
     # Run full pipeline
     detector.run_full_pipeline(
         k=20,
-        n_clusters=6,
+        n_clusters=6,   # was 6
         celltype_key='cell_type',  # Adjust to your column name
         img_id_key='tile_name',  # Adjust to your column name
         output_dir=output_dir,

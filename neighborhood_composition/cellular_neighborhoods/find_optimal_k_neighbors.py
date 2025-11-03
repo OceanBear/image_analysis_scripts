@@ -23,6 +23,9 @@ from sklearn.cluster import KMeans
 from sklearn.metrics import calinski_harabasz_score
 from typing import Tuple, List
 import warnings
+import os
+# Set the working directory to the script's directory
+os.chdir(Path(__file__).parent)
 
 warnings.filterwarnings('ignore')
 
