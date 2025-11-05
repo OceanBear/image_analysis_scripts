@@ -167,7 +167,7 @@ def validate_subsampling(adata_full, adata_sub, output_dir, cluster_key='cell_ty
     return validation_results
 
 
-def compare_multiple_subsamples(adata_full, n_cells, n_neighbors=6, n_iterations=5, cluster_key='cell_type'):
+def compare_multiple_subsamples(adata_full, n_cells, n_neighbors=20, n_iterations=5, cluster_key='cell_type'):
     """
     Compare enrichment results across multiple random subsamples to check robustness.
 
@@ -276,9 +276,9 @@ def run_wsi_spatial_analysis_pipeline(
     adata_path,
     output_dir='spatial_analysis_results_wsi',
     n_cells_analysis=50000,
-    n_cells_visualization=10000,
+    n_cells_visualization=20000,
     radius=50,
-    n_neighbors=6,
+    n_neighbors=20,
     n_perms=1000,
     save_adata=False,
     skip_cooccurrence=True,
@@ -351,7 +351,7 @@ def run_wsi_spatial_analysis_pipeline(
     print("STEP 2: BUILDING SPATIAL GRAPH")
     print("=" * 70)
 
-    adata_analysis = build_spatial_graph(adata_analysis, method='knn', n_neighbors=6)
+    adata_analysis = build_spatial_graph(adata_analysis, method='knn', n_neighbors=20)
 
     # ==================== STEP 3: Neighborhood Enrichment ====================
     print("\n" + "=" * 70)
@@ -467,7 +467,7 @@ if __name__ == "__main__":
         output_dir='spatial_analysis_results_wsi',
         n_cells_analysis=50000,        # Number of cells for analysis (adjust based on memory)
         n_cells_visualization=20000,    # Number of cells to display (1000-10000 recommended)
-        n_neighbors=6,
+        n_neighbors=20,
         radius=50,                     # Adjust based on your tissue/magnification
         n_perms=1000,                  # Permutations for statistical testing
         save_adata=False,              # Set to True to save the subsampled h5ad file
@@ -496,7 +496,7 @@ if __name__ == "__main__":
 
     robustness_results = compare_multiple_subsamples(
         adata_full=sc.read_h5ad(adata_path),
-        n_neighbors=6,
+        n_neighbors=20,
         n_cells=50000,
         n_iterations=5
     )

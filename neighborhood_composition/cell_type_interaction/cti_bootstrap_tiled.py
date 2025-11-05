@@ -169,7 +169,7 @@ def run_single_bootstrap_iteration(
     tile_key='tile_name',
     method='knn',
     radius=50,
-    n_neighbors=6,
+    n_neighbors=20,
     n_perms=100,
     cluster_key='cell_type',
     seed=None,
@@ -281,7 +281,7 @@ def run_bootstrap_permutation_analysis(
     n_bootstrap=100,
     method='knn',
     radius=50,
-    n_neighbors=6,
+    n_neighbors=20,
     n_perms=100,
     cluster_key='cell_type',
     seed=42,
@@ -425,6 +425,7 @@ def run_bootstrap_permutation_analysis(
             'min_cells_per_type': min_cells_per_type
         },
         'parameters': {
+            'n_bootstrap': len(zscores_list),
             'n_perms': n_perms,
             'method': method,
             'radius': radius,
@@ -459,7 +460,7 @@ def compare_with_standard_permutation(
     bootstrap_results,
     method='knn',
     radius=50,
-    n_neighbors=6,
+    n_neighbors=20,
     n_perms=1000,
     cluster_key='cell_type'
 ):
@@ -545,7 +546,13 @@ def visualize_bootstrap_enrichment(
     cmap='coolwarm',
     vmin=None,
     vmax=None,
-    save_path=None
+    save_path=None,
+    n_bootstrap=None,
+    n_perms_bootstrap=None,
+    n_perms_standard=None,
+    n_neighbors=None,
+    max_zscore=None,
+    min_cells_per_type=None
 ):
     """
     Visualize bootstrap enrichment results with confidence intervals.
@@ -625,9 +632,55 @@ def visualize_bootstrap_enrichment(
 
     ax.set_xlabel('Cell Type', fontsize=12)
     ax.set_ylabel('Cell Type', fontsize=12)
-    ax.set_title('Neighborhood Enrichment: Bootstrap-Permutation Analysis\n'
-                 '(Mean Z-score at 95% CI, *** = CI excludes zero)',
-                 fontsize=14, fontweight='bold', pad=20)
+    
+    # Build title with parameters
+    title = 'Neighborhood Enrichment: Bootstrap-Permutation Analysis\n(Mean Z-score at 95% CI, *** = CI excludes zero)'
+    
+    # Get parameters from bootstrap_results if not provided
+    if 'parameters' in bootstrap_results:
+        params_dict = bootstrap_results['parameters']
+        if n_bootstrap is None:
+            n_bootstrap = params_dict.get('n_bootstrap')
+        if n_perms_bootstrap is None:
+            n_perms_bootstrap = params_dict.get('n_perms')
+        if n_neighbors is None:
+            n_neighbors = params_dict.get('n_neighbors')
+        if max_zscore is None:
+            max_zscore = params_dict.get('max_zscore')
+        if min_cells_per_type is None:
+            min_cells_per_type = params_dict.get('min_cells_per_type')
+    
+    # Build parameter string in two rows
+    row1_params = []
+    row2_params = []
+    
+    if n_bootstrap is not None:
+        row1_params.append(f'n_bootstrap={n_bootstrap}')
+    if n_perms_bootstrap is not None:
+        row1_params.append(f'n_perms_bootstrap={n_perms_bootstrap}')
+    if n_perms_standard is not None:
+        row1_params.append(f'n_perms_standard={n_perms_standard}')
+    if n_neighbors is not None:
+        row2_params.append(f'n_neighbors={n_neighbors}')
+    if max_zscore is not None:
+        row2_params.append(f'max_zscore={max_zscore}')
+    if min_cells_per_type is not None:
+        row2_params.append(f'min_cells_per_type={min_cells_per_type}')
+    
+    if row1_params or row2_params:
+        param_str = ''
+        if row1_params:
+            param_str += f'({", ".join(row1_params)}'
+        if row2_params:
+            if row1_params:
+                param_str += f'\n{", ".join(row2_params)})'
+            else:
+                param_str += f'({", ".join(row2_params)})'
+        elif row1_params:
+            param_str += ')'
+        title += f'\n{param_str}'
+    
+    ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
 
     # Set tick labels
     ax.set_xticklabels(cell_types, rotation=45, ha='right')
@@ -649,7 +702,13 @@ def visualize_bootstrap_comparison(
     standard_zscore,
     cell_types,
     figsize=(10, 8),
-    save_path=None
+    save_path=None,
+    n_bootstrap=None,
+    n_perms_bootstrap=None,
+    n_perms_standard=None,
+    n_neighbors=None,
+    max_zscore=None,
+    min_cells_per_type=None
 ):
     """
     Visualize bootstrap uncertainty (standard deviation across iterations).
@@ -700,8 +759,56 @@ def visualize_bootstrap_comparison(
 
     ax.set_xlabel('Cell Type', fontsize=12)
     ax.set_ylabel('Cell Type', fontsize=12)
-    ax.set_title('Bootstrap Uncertainty\n(Std Dev across iterations)',
-                 fontsize=14, fontweight='bold', pad=20)
+    
+    # Build title with parameters
+    title = 'Bootstrap Uncertainty\n(Std Dev across iterations)'
+    params = []
+    
+    # Get parameters from bootstrap_results if not provided
+    if 'parameters' in bootstrap_results:
+        params_dict = bootstrap_results['parameters']
+        if n_bootstrap is None:
+            n_bootstrap = params_dict.get('n_bootstrap')
+        if n_perms_bootstrap is None:
+            n_perms_bootstrap = params_dict.get('n_perms')
+        if n_neighbors is None:
+            n_neighbors = params_dict.get('n_neighbors')
+        if max_zscore is None:
+            max_zscore = params_dict.get('max_zscore')
+        if min_cells_per_type is None:
+            min_cells_per_type = params_dict.get('min_cells_per_type')
+    
+    # Build parameter string in two rows
+    row1_params = []
+    row2_params = []
+    
+    if n_bootstrap is not None:
+        row1_params.append(f'n_bootstrap={n_bootstrap}')
+    if n_perms_bootstrap is not None:
+        row1_params.append(f'n_perms_bootstrap={n_perms_bootstrap}')
+    if n_perms_standard is not None:
+        row1_params.append(f'n_perms_standard={n_perms_standard}')
+    if n_neighbors is not None:
+        row2_params.append(f'n_neighbors={n_neighbors}')
+    if max_zscore is not None:
+        row2_params.append(f'max_zscore={max_zscore}')
+    if min_cells_per_type is not None:
+        row2_params.append(f'min_cells_per_type={min_cells_per_type}')
+    
+    if row1_params or row2_params:
+        param_str = ''
+        if row1_params:
+            param_str += f'({", ".join(row1_params)}'
+        if row2_params:
+            if row1_params:
+                param_str += f'\n{", ".join(row2_params)})'
+            else:
+                param_str += f'({", ".join(row2_params)})'
+        elif row1_params:
+            param_str += ')'
+        title += f'\n{param_str}'
+    
+    ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
 
     plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
     plt.setp(ax.get_yticklabels(), rotation=0)
@@ -972,7 +1079,9 @@ def run_bootstrap_pipeline(
     tile_key='tile_name',
     output_dir='bootstrap_spatial_analysis',
     n_bootstrap=100,
+    method='knn',
     radius=50,
+    n_neighbors=20,
     n_perms_bootstrap=100,
     n_perms_standard=1000,
     cluster_key='cell_type',
@@ -1002,8 +1111,12 @@ def run_bootstrap_pipeline(
         Directory to save results
     n_bootstrap : int, default=100
         Number of bootstrap iterations
+    method : str, default='knn'
+        Method for spatial graph: 'knn' or 'radius'
     radius : float, default=50
-        Radius for spatial graph (pixels)
+        Radius for spatial graph (pixels, used if method='radius')
+    n_neighbors : int, default=6
+        Number of neighbors for KNN (used if method='knn')
     n_perms_bootstrap : int, default=100
         Permutations per bootstrap iteration (can be lower since we do many bootstraps)
     n_perms_standard : int, default=1000
@@ -1017,6 +1130,10 @@ def run_bootstrap_pipeline(
         bootstrap_significant_interactions.csv which contains the key results.
     seed : int, default=42
         Random seed for reproducibility
+    max_zscore : float, default=50.0
+        Maximum z-score value (clips extreme values)
+    min_cells_per_type : int, default=5
+        Minimum cells per cell type for valid analysis
 
     Returns:
     --------
@@ -1053,7 +1170,9 @@ def run_bootstrap_pipeline(
         adata,
         tile_key=tile_key,
         n_bootstrap=n_bootstrap,
+        method=method,
         radius=radius,
+        n_neighbors=n_neighbors,
         n_perms=n_perms_bootstrap,
         cluster_key=cluster_key,
         seed=seed,
@@ -1078,7 +1197,9 @@ def run_bootstrap_pipeline(
     adata_standard, comparison = compare_with_standard_permutation(
         adata,
         bootstrap_results,
+        method=method,
         radius=radius,
+        n_neighbors=n_neighbors,
         n_perms=n_perms_standard,
         cluster_key=cluster_key
     )
@@ -1092,7 +1213,13 @@ def run_bootstrap_pipeline(
     visualize_bootstrap_enrichment(
         bootstrap_results,
         cluster_key=cluster_key,
-        save_path=output_dir / 'bootstrap_enrichment_with_ci.png'
+        save_path=output_dir / 'bootstrap_enrichment_with_ci.png',
+        n_bootstrap=n_bootstrap,
+        n_perms_bootstrap=n_perms_bootstrap,
+        n_perms_standard=n_perms_standard,
+        n_neighbors=n_neighbors,
+        max_zscore=max_zscore,
+        min_cells_per_type=min_cells_per_type
     )
 
     # Bootstrap uncertainty plot
@@ -1100,7 +1227,13 @@ def run_bootstrap_pipeline(
         bootstrap_results,
         comparison['standard_zscore'],
         bootstrap_results['cell_types'],
-        save_path=output_dir / 'bootstrap_uncertainty.png'
+        save_path=output_dir / 'bootstrap_uncertainty.png',
+        n_bootstrap=n_bootstrap,
+        n_perms_bootstrap=n_perms_bootstrap,
+        n_perms_standard=n_perms_standard,
+        n_neighbors=n_neighbors,
+        max_zscore=max_zscore,
+        min_cells_per_type=min_cells_per_type
     )
 
     # Step 4: Summarize Interactions
@@ -1243,7 +1376,9 @@ if __name__ == "__main__":
         tile_key='tile_name',           # Adjust to your tile identifier column
         output_dir=output_dir,
         n_bootstrap=100,                # More bootstraps = better uncertainty estimates
-        radius=50,                      # Adjust based on your tissue/magnification
+        method='knn',                   # Spatial graph method: 'knn' or 'radius'
+        radius=50,                      # Adjust based on your tissue/magnification (used if method='radius')
+        n_neighbors=20,                 # Number of neighbors for KNN (used if method='knn')
         n_perms_bootstrap=100,          # Can be lower since we do many bootstraps
         n_perms_standard=1000,          # Higher for single standard analysis
         cluster_key='cell_type',        # Adjust to your cell type column

@@ -1,4 +1,33 @@
 # cn_kmeans_tiled.py
+"""
+Cellular Neighborhood Detection using K-Means Clustering
+
+This module detects cellular neighborhoods (CNs) by clustering cells based on their
+local neighborhood composition, not their own cell type. The method follows the approach
+from Schürch et al. (2020) and works in three steps:
+
+1. BUILD SPATIAL GRAPH: 
+   - Constructs a k-nearest neighbor (KNN) graph based on spatial coordinates
+   - Each cell is connected to its k nearest spatial neighbors (default k=20)
+   
+2. AGGREGATE NEIGHBOR COMPOSITION:
+   - For each cell, computes the fraction of each cell type in its local neighborhood
+   - Creates a feature vector representing the neighborhood composition
+   - Example: [0.3 T_cells, 0.5 B_cells, 0.1 Macrophages, 0.1 Epithelial, ...]
+   
+3. K-MEANS CLUSTERING:
+   - Clusters cells based on their neighborhood composition vectors
+   - Cells with similar neighborhood compositions are grouped into the same CN
+   - The number of CNs is specified (default n_clusters=6)
+   
+KEY INSIGHT: Two cells of different types can be in the same CN if they have similar
+neighborhood compositions. This captures spatial organization patterns where certain
+cell type combinations co-occur locally.
+
+Reference:
+Schürch et al. (2020) "Coordinated cellular neighborhoods orchestrate antitumoral 
+immunity at the colorectal cancer invasive front", Cell
+"""
 
 import numpy as np
 import pandas as pd

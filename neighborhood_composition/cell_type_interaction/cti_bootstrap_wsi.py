@@ -61,11 +61,15 @@ warnings.filterwarnings('ignore')
 def run_single_bootstrap_iteration_wsi(
     adata_full,
     n_cells,
+    method='knn',
     radius=50,
+    n_neighbors=20,
     n_perms=100,
     cluster_key='cell_type',
     seed=None,
-    verbose=False
+    verbose=False,
+    max_zscore=50.0,
+    min_cells_per_type=5
 ):
     """
     Run a single bootstrap iteration for WSI: create random subsample + enrichment analysis.
@@ -76,8 +80,12 @@ def run_single_bootstrap_iteration_wsi(
         Full WSI dataset
     n_cells : int
         Number of cells to subsample
-    radius : float
-        Radius for spatial graph
+    method : str, default='knn'
+        Method for spatial graph: 'knn' or 'radius'
+    radius : float, default=50
+        Radius for spatial graph (used if method='radius')
+    n_neighbors : int, default=6
+        Number of neighbors for KNN (used if method='knn')
     n_perms : int
         Number of permutations for enrichment test
     cluster_key : str
@@ -86,6 +94,10 @@ def run_single_bootstrap_iteration_wsi(
         Random seed
     verbose : bool
         Whether to print progress
+    max_zscore : float, default=50.0
+        Maximum z-score value (clips extreme values)
+    min_cells_per_type : int, default=5
+        Minimum cells per cell type for valid analysis
 
     Returns:
     --------
@@ -102,7 +114,7 @@ def run_single_bootstrap_iteration_wsi(
 
     # Build spatial graph
     adata_sub = build_spatial_graph(
-        adata_sub, method='radius', radius=radius
+        adata_sub, method=method, radius=radius, n_neighbors=n_neighbors
     )
 
     # Run enrichment analysis with permutation
@@ -128,11 +140,15 @@ def run_bootstrap_permutation_analysis_wsi(
     adata_full,
     n_cells_per_bootstrap=50000,
     n_bootstrap=100,
+    method='knn',
     radius=50,
+    n_neighbors=20,
     n_perms=100,
     cluster_key='cell_type',
     seed=42,
-    n_jobs=1
+    n_jobs=1,
+    max_zscore=50.0,
+    min_cells_per_type=5
 ):
     """
     Run full bootstrap-permutation analysis for WSI across multiple subsamples.
@@ -149,8 +165,12 @@ def run_bootstrap_permutation_analysis_wsi(
         Number of cells to use per bootstrap subsample
     n_bootstrap : int, default=100
         Number of bootstrap iterations (random subsamples)
+    method : str, default='knn'
+        Method for spatial graph: 'knn' or 'radius'
     radius : float, default=50
-        Radius for spatial graph
+        Radius for spatial graph (used if method='radius')
+    n_neighbors : int, default=6
+        Number of neighbors for KNN (used if method='knn')
     n_perms : int, default=100
         Number of permutations per bootstrap
     cluster_key : str, default='cell_type'
@@ -159,6 +179,10 @@ def run_bootstrap_permutation_analysis_wsi(
         Random seed for reproducibility
     n_jobs : int, default=1
         Number of parallel jobs (currently single-threaded)
+    max_zscore : float, default=50.0
+        Maximum z-score value (clips extreme values)
+    min_cells_per_type : int, default=5
+        Minimum cells per cell type for valid analysis
 
     Returns:
     --------
@@ -179,7 +203,11 @@ def run_bootstrap_permutation_analysis_wsi(
     print(f"  - Cells per bootstrap subsample: {n_cells_per_bootstrap:,}")
     print(f"  - Number of bootstrap iterations: {n_bootstrap}")
     print(f"  - Permutations per bootstrap: {n_perms}")
-    print(f"  - Spatial radius: {radius} pixels")
+    print(f"  - Spatial graph method: {method}")
+    if method == 'knn':
+        print(f"  - Number of neighbors (KNN): {n_neighbors}")
+    else:
+        print(f"  - Spatial radius: {radius} pixels")
 
     # Get cell types
     cell_types = adata_full.obs[cluster_key].cat.categories.tolist()
@@ -199,11 +227,15 @@ def run_bootstrap_permutation_analysis_wsi(
             results = run_single_bootstrap_iteration_wsi(
                 adata_full,
                 n_cells=n_cells_per_bootstrap,
+                method=method,
                 radius=radius,
+                n_neighbors=n_neighbors,
                 n_perms=n_perms,
                 cluster_key=cluster_key,
                 seed=boot_seed,
-                verbose=False
+                verbose=False,
+                max_zscore=max_zscore,
+                min_cells_per_type=min_cells_per_type
             )
             zscores_list.append(results['zscore'])
         except Exception as e:
@@ -236,11 +268,16 @@ def run_bootstrap_permutation_analysis_wsi(
         'cell_types': cell_types,
         'n_bootstrap': len(zscores_list),
         'parameters': {
+            'n_bootstrap': len(zscores_list),
             'n_cells_per_bootstrap': n_cells_per_bootstrap,
             'n_perms': n_perms,
+            'method': method,
             'radius': radius,
+            'n_neighbors': n_neighbors,
             'seed': seed,
-            'total_cells': adata_full.n_obs
+            'total_cells': adata_full.n_obs,
+            'max_zscore': max_zscore,
+            'min_cells_per_type': min_cells_per_type
         }
     }
 
@@ -258,7 +295,9 @@ def compare_with_standard_single_subsample(
     adata_full,
     bootstrap_results,
     n_cells,
+    method='knn',
     radius=50,
+    n_neighbors=20,
     n_perms=1000,
     cluster_key='cell_type',
     seed=42
@@ -274,8 +313,12 @@ def compare_with_standard_single_subsample(
         Results from bootstrap analysis
     n_cells : int
         Number of cells for standard subsample
-    radius : float
-        Radius for spatial graph
+    method : str, default='knn'
+        Method for spatial graph: 'knn' or 'radius'
+    radius : float, default=50
+        Radius for spatial graph (used if method='radius')
+    n_neighbors : int, default=6
+        Number of neighbors for KNN (used if method='knn')
     n_perms : int
         Number of permutations
     cluster_key : str
@@ -299,7 +342,7 @@ def compare_with_standard_single_subsample(
     adata_std = subsample_adata(adata_full, n_cells=n_cells, seed=seed)
 
     # Build graph and run enrichment
-    adata_std = build_spatial_graph(adata_std, method='radius', radius=radius)
+    adata_std = build_spatial_graph(adata_std, method=method, radius=radius, n_neighbors=n_neighbors)
     adata_std = neighborhood_enrichment_analysis(
         adata_std,
         cluster_key=cluster_key,
@@ -348,12 +391,16 @@ def run_bootstrap_wsi_pipeline(
     n_cells_per_bootstrap=50000,
     n_cells_visualization=10000,
     n_bootstrap=100,
+    method='knn',
     radius=50,
+    n_neighbors=20,
     n_perms_bootstrap=100,
     n_perms_standard=1000,
     cluster_key='cell_type',
     save_adata=False,
-    seed=42
+    seed=42,
+    max_zscore=50.0,
+    min_cells_per_type=5
 ):
     """
     Run complete bootstrap-permutation analysis pipeline for whole slide images (WSI).
@@ -378,8 +425,12 @@ def run_bootstrap_wsi_pipeline(
         Number of cells for spatial distribution plots
     n_bootstrap : int, default=100
         Number of bootstrap iterations
+    method : str, default='knn'
+        Method for spatial graph: 'knn' or 'radius'
     radius : float, default=50
-        Radius for spatial graph (pixels)
+        Radius for spatial graph (pixels, used if method='radius')
+    n_neighbors : int, default=6
+        Number of neighbors for KNN (used if method='knn')
     n_perms_bootstrap : int, default=100
         Permutations per bootstrap iteration (can be lower)
     n_perms_standard : int, default=1000
@@ -390,6 +441,10 @@ def run_bootstrap_wsi_pipeline(
         Whether to save processed data
     seed : int, default=42
         Random seed for reproducibility
+    max_zscore : float, default=50.0
+        Maximum z-score value (clips extreme values)
+    min_cells_per_type : int, default=5
+        Minimum cells per cell type for valid analysis
 
     Returns:
     --------
@@ -422,10 +477,14 @@ def run_bootstrap_wsi_pipeline(
         adata_full,
         n_cells_per_bootstrap=n_cells_per_bootstrap,
         n_bootstrap=n_bootstrap,
+        method=method,
         radius=radius,
+        n_neighbors=n_neighbors,
         n_perms=n_perms_bootstrap,
         cluster_key=cluster_key,
-        seed=seed
+        seed=seed,
+        max_zscore=max_zscore,
+        min_cells_per_type=min_cells_per_type
     )
 
     # Step 2: Validate Subsampling (use first bootstrap subsample)
@@ -445,7 +504,9 @@ def run_bootstrap_wsi_pipeline(
         adata_full,
         bootstrap_results,
         n_cells=n_cells_per_bootstrap,
+        method=method,
         radius=radius,
+        n_neighbors=n_neighbors,
         n_perms=n_perms_standard,
         cluster_key=cluster_key,
         seed=seed
@@ -460,7 +521,13 @@ def run_bootstrap_wsi_pipeline(
     visualize_bootstrap_enrichment(
         bootstrap_results,
         cluster_key=cluster_key,
-        save_path=output_dir / 'bootstrap_enrichment_with_ci_wsi.png'
+        save_path=output_dir / 'bootstrap_enrichment_with_ci_wsi.png',
+        n_bootstrap=n_bootstrap,
+        n_perms_bootstrap=n_perms_bootstrap,
+        n_perms_standard=n_perms_standard,
+        n_neighbors=n_neighbors,
+        max_zscore=max_zscore,
+        min_cells_per_type=min_cells_per_type
     )
 
     # Bootstrap uncertainty plot
@@ -468,7 +535,13 @@ def run_bootstrap_wsi_pipeline(
         bootstrap_results,
         comparison['standard_zscore'],
         bootstrap_results['cell_types'],
-        save_path=output_dir / 'bootstrap_uncertainty_wsi.png'
+        save_path=output_dir / 'bootstrap_uncertainty_wsi.png',
+        n_bootstrap=n_bootstrap,
+        n_perms_bootstrap=n_perms_bootstrap,
+        n_perms_standard=n_perms_standard,
+        n_neighbors=n_neighbors,
+        max_zscore=max_zscore,
+        min_cells_per_type=min_cells_per_type
     )
 
     # Spatial distribution (using separate visualization subsample)
@@ -623,6 +696,10 @@ if __name__ == "__main__":
         n_cells_per_bootstrap=50000,    # Cells per bootstrap subsample
         n_cells_visualization=20000,     # Cells for visualization
         n_bootstrap=100,                 # Number of bootstrap iterations
+        method='knn',
+        n_neighbors=20,
+        max_zscore=50.0,
+        min_cells_per_type=5,
         radius=50,                       # Adjust based on tissue/magnification
         n_perms_bootstrap=100,           # Permutations per bootstrap (can be lower)
         n_perms_standard=1000,           # Permutations for standard analysis

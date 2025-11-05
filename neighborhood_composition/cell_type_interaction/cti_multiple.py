@@ -17,7 +17,10 @@ Date: 2025-10-22
 import numpy as np
 import pandas as pd
 import scanpy as sc
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend to prevent figures from popping up
 import matplotlib.pyplot as plt
+plt.ioff()  # Turn off interactive mode to prevent figures from displaying
 import seaborn as sns
 from pathlib import Path
 from typing import Optional, List, Dict
@@ -120,7 +123,7 @@ def process_single_tile(
     n_perms=1000,
     cluster_key='cell_type',
     save_adata=False,
-    n_neighbors=6,
+    n_neighbors=20,
     skip_cooccurrence=True,
     max_cells_for_cooccurrence=50000
 ):
@@ -226,7 +229,7 @@ def run_multiple_tiles_pipeline(
     n_perms=1000,
     cluster_key='cell_type',
     save_adata=False,
-    n_neighbors=6,
+    n_neighbors=20,
     skip_cooccurrence=True,
     max_cells_for_cooccurrence=50000,
     file_pattern='*.h5ad'
@@ -351,7 +354,9 @@ def run_multiple_tiles_pipeline(
     aggregated = aggregate_from_saved_results(
         tile_dirs=tile_dirs,
         output_dir=output_dir,
-        tile_names=successful_tiles
+        tile_names=successful_tiles,
+        n_perms=n_perms,
+        n_neighbors=n_neighbors
     )
 
     # Create summary report from saved metadata
@@ -453,7 +458,7 @@ if __name__ == "__main__":
         output_dir=output_dir,
         radius=50,                      # Adjust based on your tissue/magnification
         n_perms=1000,                   # Number of permutations
-        n_neighbors=6,
+        n_neighbors=20,
         cluster_key='cell_type',        # Adjust to your cell type column
         save_adata=False,               # Set to True to save processed h5ad files
         skip_cooccurrence=True,         # Skip co-occurrence for faster processing

@@ -29,7 +29,7 @@ def load_and_apply_cell_type_colors(adata, celltype_key='cell_type'):
         print("  - Warning: Colors not found in h5ad file")
 
 
-def build_spatial_graph(adata, method='radius', radius=50, n_neighbors=6, coord_type='generic'):
+def build_spatial_graph(adata, method='radius', radius=50, n_neighbors=20, coord_type='generic'):
     """
     Build spatial neighborhood graph for cells.
 
@@ -539,7 +539,7 @@ def load_intermediate_results(output_dir, tile_name=None):
     }
 
 
-def aggregate_from_saved_results(tile_dirs, output_dir, tile_names=None):
+def aggregate_from_saved_results(tile_dirs, output_dir, tile_names=None, n_perms=None, n_neighbors=None):
     """
     Aggregate results from multiple tiles using saved intermediate files.
 
@@ -554,6 +554,10 @@ def aggregate_from_saved_results(tile_dirs, output_dir, tile_names=None):
         Directory to save aggregated results
     tile_names : list of str, optional
         List of tile names corresponding to tile_dirs. If None, extracts from metadata.
+    n_perms : int, optional
+        Number of permutations used in analysis (for display in plot title)
+    n_neighbors : int, optional
+        Number of neighbors used in spatial graph (for display in plot title)
 
     Returns:
     --------
@@ -646,8 +650,17 @@ def aggregate_from_saved_results(tile_dirs, output_dir, tile_names=None):
     )
     ax.set_xlabel('Cell Type', fontsize=12)
     ax.set_ylabel('Cell Type', fontsize=12)
-    ax.set_title(f'Aggregated Neighborhood Enrichment\n(Mean Z-score across {n_tiles} tiles)',
-                 fontsize=14, fontweight='bold', pad=20)
+    
+    # Build title with parameters if provided
+    title_parts = [f'Aggregated Neighborhood Enrichment']
+    title_parts.append(f'(Mean Z-score across {n_tiles} tiles)')
+    if n_perms is not None:
+        title_parts.append(f'n_perms={n_perms}')
+    if n_neighbors is not None:
+        title_parts.append(f'n_neighbors={n_neighbors}')
+    title = '\n'.join(title_parts)
+    
+    ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
     plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
     plt.setp(ax.get_yticklabels(), rotation=0)
     plt.tight_layout()
@@ -675,8 +688,17 @@ def aggregate_from_saved_results(tile_dirs, output_dir, tile_names=None):
     )
     ax.set_xlabel('Cell Type', fontsize=12)
     ax.set_ylabel('Cell Type', fontsize=12)
-    ax.set_title(f'Variability Across Tiles\n(Std Dev of Z-scores, {n_tiles} tiles)',
-                 fontsize=14, fontweight='bold', pad=20)
+    
+    # Build title with parameters if provided
+    title_parts = [f'Variability Across Tiles']
+    title_parts.append(f'(Std Dev of Z-scores, {n_tiles} tiles)')
+    if n_perms is not None:
+        title_parts.append(f'n_perms={n_perms}')
+    if n_neighbors is not None:
+        title_parts.append(f'n_neighbors={n_neighbors}')
+    title = '\n'.join(title_parts)
+    
+    ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
     plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
     plt.setp(ax.get_yticklabels(), rotation=0)
     plt.tight_layout()
@@ -710,7 +732,7 @@ def aggregate_from_saved_results(tile_dirs, output_dir, tile_names=None):
 
 # Main analysis pipeline
 def run_spatial_analysis_pipeline(adata_path, output_dir='spatial_analysis_results',
-                                  radius=50, n_neighbors=6, n_perms=1000, save_adata=False,
+                                  radius=50, n_neighbors=20, n_perms=1000, save_adata=False,
                                   skip_cooccurrence=False, max_cells_for_cooccurrence=50000):
     """
     Run complete spatial analysis pipeline.

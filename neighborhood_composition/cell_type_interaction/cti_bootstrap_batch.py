@@ -267,7 +267,7 @@ def process_single_tile_bootstrap(
     n_bootstrap=100,
     method='knn',
     radius=50,
-    n_neighbors=6,
+    n_neighbors=20,
     n_perms=100,
     cluster_key='cell_type',
     seed=42,
@@ -389,7 +389,7 @@ def process_multiple_tiles_bootstrap(
     n_bootstrap=100,
     method='knn',
     radius=50,
-    n_neighbors=6,
+    n_neighbors=20,
     n_perms=100,
     cluster_key='cell_type',
     seed=42,
@@ -528,7 +528,7 @@ def run_bootstrap_multiple_pipeline(
     n_bootstrap=100,
     method='knn',
     radius=50,
-    n_neighbors=6,
+    n_neighbors=20,
     n_perms=100,
     cluster_key='cell_type',
     seed=42,
@@ -661,7 +661,7 @@ if __name__ == "__main__":
         tile_key='tile_name',            # Column in adata.obs with tile IDs
         n_bootstrap=100,                 # Bootstrap iterations per tile
         method='knn',                    # Spatial graph method
-        n_neighbors=6,                   # KNN neighbors
+        n_neighbors=20,                   # KNN neighbors
         n_perms=100,                     # Permutations per bootstrap
         cluster_key='cell_type',         # Cell type column
         seed=42,
