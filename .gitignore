@@ -6,3 +6,8 @@ neighborhood_composition/cellular_neighborhoods/nul
 *.npy
 *.json
 *.npz
+quantitative_analysis/cell_analysis_filtered_50.csv
+quantitative_analysis/cell_analysis_unfiltered.csv
+quantitative_analysis/cell_analysis_filtered_50.csv
+quantitative_analysis/cell_analysis_unfiltered.csv
+quantitative_analysis/cell_analysis_filtered_50.csv
