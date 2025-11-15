@@ -311,7 +311,7 @@ class UnifiedCellularNeighborhoodDetector:
 
     def detect_cellular_neighborhoods(
         self,
-        n_clusters: int = 6,    #  numbers of CNs to detect
+        n_clusters: int = 7,    #  numbers of CNs to detect
         random_state: int = 220705,
         aggregated_key: str = 'aggregated_neighbors',
         output_key: str = 'cn_celltype'
@@ -322,7 +322,7 @@ class UnifiedCellularNeighborhoodDetector:
 
         Parameters:
         -----------
-        n_clusters : int, default=6
+        n_clusters : int, default=7
             Number of cellular neighborhoods to detect
         random_state : int
             Random seed for reproducibility
@@ -688,7 +688,7 @@ class UnifiedCellularNeighborhoodDetector:
         self,
         tile_files: List[Path],
         k: int = 20,
-        n_clusters: int = 6,    # number of CNs to detect
+        n_clusters: int = 7,    # number of CNs to detect
         celltype_key: str = 'cell_type',
         random_state: int = 220705,
         coord_offset: bool = True
@@ -702,7 +702,7 @@ class UnifiedCellularNeighborhoodDetector:
             List of paths to h5ad tile files
         k : int, default=20
             Number of nearest neighbors
-        n_clusters : int, default=6
+        n_clusters : int, default=7
             Number of CNs to detect
         celltype_key : str
             Key in adata.obs containing cell type labels
@@ -783,9 +783,10 @@ def main():
     )
     parser.add_argument(
         '--tiles_dir', '-t',
-        default='/mnt/c/ProgramData/github_repo/image_analysis_scripts/neighborhood_composition/spatial_contexts/selected_h5ad_tiles/processed_h5ad', # for 14 tiles
-        #/mnt/c/ProgramData/github_repo/image_analysis_scripts/neighborhood_composition/spatial_contexts/selected_h5ad_tiles
-        #default='/mnt/g/GDC-TCGA-LUAD/00a0b174-1eab-446a-ba8c-7c6e3acd7f0c/pred/h5ad', # for 122 tiles
+        default='/mnt/g/HandE/results/SOW1885_n=201_AT2 40X/JN_TS_023/manual_2mm_17/selected_h5ad/adjacent_tissue',
+        # /mnt/c/ProgramData/github_repo/image_analysis_scripts/neighborhood_composition/spatial_contexts/selected_h5ad_tiles/processed_h5ad
+        # /mnt/c/ProgramData/github_repo/image_analysis_scripts/neighborhood_composition/spatial_contexts/selected_h5ad_tiles
+        # default='/mnt/g/GDC-TCGA-LUAD/00a0b174-1eab-446a-ba8c-7c6e3acd7f0c/pred/h5ad', # for 122 tiles
         help='Directory containing h5ad tile files'
     )
     parser.add_argument(
@@ -798,7 +799,7 @@ def main():
         help='Number of nearest neighbors (default: 20)'
     )
     parser.add_argument(
-        '--n_clusters', '-n', type=int, default=8,  # default=7
+        '--n_clusters', '-n', type=int, default=7,  # default=7
         help='Number of cellular neighborhoods (default: 7)'
     )
     parser.add_argument(
