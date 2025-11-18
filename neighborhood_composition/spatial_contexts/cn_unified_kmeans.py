@@ -62,48 +62,39 @@ class UnifiedCellularNeighborhoodDetector:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
         # Create subdirectories
-        (self.output_dir / 'individual_tiles').mkdir(exist_ok=True)
-        (self.output_dir / 'processed_h5ad').mkdir(exist_ok=True)
-        (self.output_dir / 'unified_analysis').mkdir(exist_ok=True)
-        
-        # Also create the direct path for spatial CN figures
-        Path('cn_unified_results/individual_tiles').mkdir(parents=True, exist_ok=True)
+        for subdir in ['individual_tiles', 'processed_h5ad', 'unified_analysis']:
+            (self.output_dir / subdir).mkdir(exist_ok=True)
         
         # Data storage
         self.combined_adata = None
         self.tile_list = []
         self.cn_labels = None
         self.aggregated_neighbors = None
+    
+    def _log_progress(self, current: int, total: int, prefix: str = ""):
+        """Helper method for consistent progress logging."""
+        return f"  [{current}/{total}] {prefix}"
+    
+    def _get_spatial_coords(self, adata, coord_key: str = 'spatial'):
+        """Get spatial coordinates with fallback options."""
+        if coord_key in adata.obsm:
+            return adata.obsm[coord_key]
+        elif 'spatial' in adata.obsm:
+            return adata.obsm['spatial']
+        return None
 
     def discover_tiles(self, pattern: str = "*.h5ad", max_tiles: Optional[int] = None) -> List[Path]:
-        """
-        Discover h5ad files in the tiles directory.
-
-        Parameters:
-        -----------
-        pattern : str
-            File pattern to match (default: "*.h5ad")
-        max_tiles : int, optional
-            Maximum number of tiles to process (for testing)
-
-        Returns:
-        --------
-        tile_files : List[Path]
-            List of discovered tile files
-        """
+        """Discover h5ad files in the tiles directory."""
         print(f"Discovering tiles in: {self.tiles_directory}")
         
-        tile_files = sorted(list(self.tiles_directory.glob(pattern)))
+        tile_files = sorted(self.tiles_directory.glob(pattern))[:max_tiles]
         
         if not tile_files:
             print(f"Warning: No {pattern} files found in {self.tiles_directory}")
             return []
         
-        if max_tiles:
-            tile_files = tile_files[:max_tiles]
-            print(f"Found {len(tile_files)} tile files (limited to {max_tiles})")
-        else:
-            print(f"Found {len(tile_files)} tile files")
+        limit_msg = f" (limited to {max_tiles})" if max_tiles else ""
+        print(f"Found {len(tile_files)} tile files{limit_msg}")
         
         return tile_files
 
@@ -138,7 +129,7 @@ class UnifiedCellularNeighborhoodDetector:
         
         for i, tile_path in enumerate(tile_files, 1):
             tile_name = tile_path.stem
-            print(f"  [{i}/{len(tile_files)}] Loading: {tile_name}")
+            print(self._log_progress(i, len(tile_files), f"Loading: {tile_name}"))
             
             try:
                 adata = sc.read_h5ad(tile_path)
@@ -150,15 +141,11 @@ class UnifiedCellularNeighborhoodDetector:
                 # Auto-detect cell type column
                 if celltype_key not in adata.obs.columns:
                     alternatives = ['celltype', 'cell_type', 'CellType', 'Cell_Type']
-                    for alt in alternatives:
-                        if alt in adata.obs.columns:
-                            celltype_key = alt
-                            break
-                
-                # Verify required columns
-                if celltype_key not in adata.obs.columns:
-                    print(f"    Warning: No cell type column found, skipping tile")
-                    continue
+                    celltype_key = next((alt for alt in alternatives if alt in adata.obs.columns), None)
+                    
+                    if not celltype_key:
+                        print(f"    Warning: No cell type column found, skipping tile")
+                        continue
                 
                 # Ensure cell types are categorical
                 if not pd.api.types.is_categorical_dtype(adata.obs[celltype_key]):
@@ -174,9 +161,8 @@ class UnifiedCellularNeighborhoodDetector:
                     # Store original coordinates before offset
                     adata.obsm['spatial_original'] = adata.obsm['spatial'] - np.array([coord_offset_x, coord_offset_y])
                     
-                    # Update offset for next tile (arrange tiles horizontally)
-                    max_x = coords[:, 0].max()
-                    coord_offset_x = max_x + 500  # 500 pixel gap between tiles
+                    # Update offset for next tile
+                    coord_offset_x = coords[:, 0].max() + 500  # 500 pixel gap
                 
                 adata_list.append(adata)
                 self.tile_list.append(tile_name)
@@ -189,11 +175,9 @@ class UnifiedCellularNeighborhoodDetector:
         if not adata_list:
             raise ValueError("No valid tiles could be loaded")
         
-        # Combine all tiles
         print("\nCombining tiles into single dataset...")
         combined_adata = ad.concat(adata_list, join='outer', index_unique='-')
         
-        # Ensure spatial coordinates are properly set
         if 'spatial' not in combined_adata.obsm:
             print("  Warning: No spatial coordinates found in combined data")
         
@@ -210,40 +194,25 @@ class UnifiedCellularNeighborhoodDetector:
         coord_key: str = 'spatial',
         key_added: str = 'spatial_connectivities_knn'
     ):
-        """
-        Build k-nearest neighbor graph on the combined dataset.
-
-        Parameters:
-        -----------
-        k : int, default=20
-            Number of nearest neighbors
-        coord_key : str
-            Key in adata.obsm containing spatial coordinates
-        key_added : str
-            Key to store the connectivity matrix
-        """
+        """Build k-nearest neighbor graph on the combined dataset."""
         print(f"\nBuilding unified {k}-NN graph across all tiles...")
 
-        # Build spatial neighbors graph on combined data
         sq.gr.spatial_neighbors(
             self.combined_adata,
             spatial_key=coord_key,
             coord_type='generic',
             n_neighs=k,
-            radius=None  # Use KNN, not radius
+            radius=None
         )
 
-        # Squidpy uses fixed key names, rename if needed
+        # Rename if needed (Squidpy uses fixed key names)
         actual_key = 'spatial_connectivities'
         if key_added != actual_key and actual_key in self.combined_adata.obsp:
             self.combined_adata.obsp[key_added] = self.combined_adata.obsp[actual_key]
 
-        # Print statistics
         connectivity = self.combined_adata.obsp[key_added]
-        avg_neighbors = connectivity.sum(axis=1).mean()
-        print(f"  ✓ Average neighbors per cell: {avg_neighbors:.2f}")
+        print(f"  ✓ Average neighbors per cell: {connectivity.sum(axis=1).mean():.2f}")
         print(f"  ✓ Connectivity matrix shape: {connectivity.shape}")
-
         return self
 
     def aggregate_neighbors(
@@ -252,111 +221,58 @@ class UnifiedCellularNeighborhoodDetector:
         connectivity_key: str = 'spatial_connectivities_knn',
         output_key: str = 'aggregated_neighbors'
     ):
-        """
-        For each cell, compute the fraction of each cell phenotype in its neighborhood.
-
-        Parameters:
-        -----------
-        celltype_key : str
-            Key in adata.obs containing cell type labels
-        connectivity_key : str
-            Key in adata.obsp containing spatial connectivity
-        output_key : str
-            Key to store aggregated neighbor fractions
-        """
+        """For each cell, compute the fraction of each cell phenotype in its neighborhood."""
         print(f"\nAggregating neighbors by {celltype_key}...")
 
-        # Get cell types
         cell_types = self.combined_adata.obs[celltype_key].values
         unique_types = self.combined_adata.obs[celltype_key].cat.categories
-
-        # Get connectivity matrix
         connectivity = self.combined_adata.obsp[connectivity_key]
-
-        # Initialize aggregated neighbors matrix
         n_cells = self.combined_adata.n_obs
         n_types = len(unique_types)
         aggregated = np.zeros((n_cells, n_types))
 
         print(f"  Processing {n_cells} cells...")
         
-        # For each cell, compute cell type fractions in neighborhood
         for i in range(n_cells):
             if i % 10000 == 0 and i > 0:
                 print(f"    Processed {i:,}/{n_cells:,} cells ({100*i/n_cells:.1f}%)")
             
-            # Get neighbors (including self)
             neighbors_mask = connectivity[i].toarray().flatten() > 0
-
             if neighbors_mask.sum() > 0:
-                # Get cell types of neighbors
                 neighbor_types = cell_types[neighbors_mask]
-
-                # Compute fractions
                 for j, ct in enumerate(unique_types):
                     aggregated[i, j] = (neighbor_types == ct).sum() / neighbors_mask.sum()
 
-        # Store in adata
         self.aggregated_neighbors = pd.DataFrame(
-            aggregated,
-            columns=unique_types,
-            index=self.combined_adata.obs_names
+            aggregated, columns=unique_types, index=self.combined_adata.obs_names
         )
-
         self.combined_adata.obsm[output_key] = aggregated
-
         print(f"  ✓ Aggregated neighbor fractions shape: {aggregated.shape}")
-
         return self
 
     def detect_cellular_neighborhoods(
         self,
-        n_clusters: int = 7,    #  numbers of CNs to detect
+        n_clusters: int = 7,
         random_state: int = 220705,
         aggregated_key: str = 'aggregated_neighbors',
         output_key: str = 'cn_celltype'
     ):
-        """
-        Cluster cells based on their neighborhood composition using k-means.
-        This creates a UNIFIED set of CNs across all tiles.
-
-        Parameters:
-        -----------
-        n_clusters : int, default=7
-            Number of cellular neighborhoods to detect
-        random_state : int
-            Random seed for reproducibility
-        aggregated_key : str
-            Key in adata.obsm containing aggregated neighbor fractions
-        output_key : str
-            Key to store CN labels in adata.obs
-        """
+        """Cluster cells based on their neighborhood composition using k-means."""
         print(f"\nDetecting {n_clusters} unified cellular neighborhoods using k-means...")
 
-        # Get aggregated neighbor fractions
         aggregated = self.combined_adata.obsm[aggregated_key]
-
-        # Perform k-means clustering
-        kmeans = KMeans(
-            n_clusters=n_clusters,
-            random_state=random_state,
-            n_init=10
-        )
-
+        kmeans = KMeans(n_clusters=n_clusters, random_state=random_state, n_init=10)
         cn_labels = kmeans.fit_predict(aggregated)
 
-        # Store CN labels (add 1 to match R's 1-based indexing)
-        self.cn_labels = cn_labels + 1
+        self.cn_labels = cn_labels + 1  # 1-based indexing
         self.combined_adata.obs[output_key] = pd.Categorical(self.cn_labels)
 
-        # Print CN sizes overall and per tile
+        # Print CN sizes
         cn_counts = pd.Series(self.cn_labels).value_counts().sort_index()
         print(f"\n  ✓ Unified CN sizes (across all tiles):")
         for cn, count in cn_counts.items():
-            percentage = 100 * count / len(self.cn_labels)
-            print(f"    CN {cn}: {count:,} cells ({percentage:.1f}%)")
+            print(f"    CN {cn}: {count:,} cells ({100 * count / len(self.cn_labels):.1f}%)")
         
-        # CN distribution per tile
         print(f"\n  CN distribution per tile:")
         for tile_name in self.combined_adata.obs['tile_name'].unique():
             tile_mask = self.combined_adata.obs['tile_name'] == tile_name
@@ -370,37 +286,17 @@ class UnifiedCellularNeighborhoodDetector:
         cn_key: str = 'cn_celltype',
         celltype_key: str = 'cell_type'
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """
-        Compute unified cell phenotype fractions in each CN across ALL tiles.
-
-        Parameters:
-        -----------
-        cn_key : str
-            Key in adata.obs containing CN labels
-        celltype_key : str
-            Key in adata.obs containing cell type labels
-
-        Returns:
-        --------
-        composition : DataFrame
-            CN composition matrix (rows=CNs, columns=cell types)
-        composition_zscore : DataFrame
-            Z-score normalized composition matrix
-        """
+        """Compute unified cell phenotype fractions in each CN across ALL tiles."""
         print("\nComputing unified CN composition across all tiles...")
 
-        # Create contingency table
         composition = pd.crosstab(
             self.combined_adata.obs[cn_key],
             self.combined_adata.obs[celltype_key],
-            normalize='index'  # Normalize by CN (rows)
+            normalize='index'
         )
-
-        # Z-score by column (cell type)
         composition_zscore = composition.apply(lambda x: (x - x.mean()) / x.std(), axis=0)
 
         print(f"  ✓ Composition matrix shape: {composition.shape}")
-        
         return composition, composition_zscore
 
     def visualize_unified_cn_composition(
@@ -415,28 +311,7 @@ class UnifiedCellularNeighborhoodDetector:
         save_path: Optional[str] = None,
         show_values: bool = True
     ):
-        """
-        Visualize unified CN composition as heatmap across ALL tiles.
-
-        Parameters:
-        -----------
-        composition_zscore : DataFrame
-            Z-score normalized composition matrix
-        k : int
-            Number of nearest neighbors used
-        n_clusters : int
-            Number of CNs detected
-        figsize : tuple
-            Figure size (width, height)
-        cmap : str
-            Colormap name
-        vmin, vmax : float
-            Color scale limits for z-scores
-        save_path : str, optional
-            Path to save figure
-        show_values : bool
-            Whether to show values in heatmap cells
-        """
+        """Visualize unified CN composition as heatmap across ALL tiles."""
         print("\nVisualizing unified CN composition heatmap...")
 
         fig, ax = plt.subplots(figsize=figsize)
@@ -477,39 +352,18 @@ class UnifiedCellularNeighborhoodDetector:
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
             print(f"  ✓ Saved unified heatmap to: {save_path}")
 
-        plt.close()
-
         return fig
 
     def visualize_individual_tile_cns(
         self,
         cn_key: str = 'cn_celltype',
         coord_key: str = 'spatial_original',
-        point_size: float = 10.0,  # Increased to 5.0 for much better cell visibility
+        point_size: float = 10.0,
         palette: str = 'Set3',
         k: Optional[int] = None,
         n_clusters: Optional[int] = None
     ):
-        """
-        Visualize cellular neighborhoods spatially for EACH tile individually.
-        
-        Saves figures as spatial_cns_{tile_name}.png in cn_unified_results/individual_tiles/
-
-        Parameters:
-        -----------
-        cn_key : str
-            Key in adata.obs containing CN labels
-        coord_key : str
-            Key in adata.obsm containing spatial coordinates
-        point_size : float
-            Size of points in scatter plot (default: 5.0 for much better cell visibility)
-        palette : str
-            Color palette name
-        k : int, optional
-            Number of nearest neighbors used
-        n_clusters : int, optional
-            Number of CNs detected
-        """
+        """Visualize cellular neighborhoods spatially for each tile."""
         print(f"\nGenerating individual spatial CN maps for each tile...")
 
         # Get CN labels and colors
@@ -518,18 +372,15 @@ class UnifiedCellularNeighborhoodDetector:
 
         # Process each tile
         for tile_idx, tile_name in enumerate(self.tile_list, 1):
-            print(f"  [{tile_idx}/{len(self.tile_list)}] Plotting {tile_name}...")
+            print(self._log_progress(tile_idx, len(self.tile_list), f"Plotting {tile_name}"))
             
             # Get cells from this tile
             tile_mask = self.combined_adata.obs['tile_name'] == tile_name
             tile_adata = self.combined_adata[tile_mask]
             
-            # Use original coordinates if available, otherwise use spatial
-            if coord_key in tile_adata.obsm:
-                coords = tile_adata.obsm[coord_key]
-            elif 'spatial' in tile_adata.obsm:
-                coords = tile_adata.obsm['spatial']
-            else:
+            # Get spatial coordinates
+            coords = self._get_spatial_coords(tile_adata, coord_key)
+            if coords is None:
                 print(f"    Warning: No spatial coordinates found for {tile_name}, skipping...")
                 continue
             
@@ -569,13 +420,8 @@ class UnifiedCellularNeighborhoodDetector:
 
             plt.tight_layout()
 
-            # Save figure directly to the specified directory with tile-specific naming
-            # Create the target directory: image_analysis_scripts/neighborhood_composition/spatial_contexts/cn_unified_results/individual_tiles
-            target_dir = Path('cn_unified_results') / 'individual_tiles'
-            target_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Name the file as spatial_cns_{tile_name}.png
-            save_path = target_dir / f'spatial_cns_{tile_name}.png'
+            # Save figure with tile-specific naming
+            save_path = self.output_dir / 'individual_tiles' / f'spatial_cns_{tile_name}.png'
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
             plt.close()
 
@@ -583,23 +429,181 @@ class UnifiedCellularNeighborhoodDetector:
 
         print(f"  ✓ Generated {len(self.tile_list)} spatial CN maps")
 
-    def save_processed_data(
+    def calculate_neighborhood_frequency(
         self,
-        cn_key: str = 'cn_celltype'
-    ):
+        cn_key: str = 'cn_celltype',
+        group_by_tile: bool = False
+    ) -> pd.DataFrame:
         """
-        Save processed h5ad files with CN annotations for each tile.
-        These files are needed for spatial context analysis.
-
+        Calculate the frequency of each cellular neighborhood.
+        
         Parameters:
         -----------
         cn_key : str
             Key in adata.obs containing CN labels
+        group_by_tile : bool
+            If True, calculate frequency per tile. If False, calculate overall frequency.
+            
+        Returns:
+        --------
+        frequency_df : DataFrame
+            DataFrame with CN frequencies (counts and percentages)
         """
+        print(f"\nCalculating neighborhood frequency...")
+        
+        if group_by_tile:
+            # Frequency per tile
+            frequency_df = pd.crosstab(
+                self.combined_adata.obs['tile_name'],
+                self.combined_adata.obs[cn_key],
+                normalize='index'  # Percentages per tile
+            )
+            print(f"  ✓ Calculated CN frequency per tile")
+        else:
+            # Overall frequency
+            cn_counts = self.combined_adata.obs[cn_key].value_counts().sort_index()
+            total_cells = len(self.combined_adata.obs)
+            cn_percentages = (cn_counts / total_cells * 100).round(2)
+            
+            frequency_df = pd.DataFrame({
+                'Count': cn_counts,
+                'Percentage': cn_percentages
+            })
+            frequency_df.index.name = 'Cellular_Neighborhood'
+            frequency_df = frequency_df.reset_index()
+            print(f"  ✓ Calculated overall CN frequency")
+            print(f"    Total cells: {total_cells:,}")
+        
+        return frequency_df
+
+    def visualize_neighborhood_frequency(
+        self,
+        cn_key: str = 'cn_celltype',
+        group_by_tile: bool = False,
+        figsize: Tuple[int, int] = (12, 6),
+        save_path: Optional[str] = None,
+        color_palette: str = 'Set3'
+    ):
+        """
+        Generate a graph showing neighborhood frequency.
+        
+        Parameters:
+        -----------
+        cn_key : str
+            Key in adata.obs containing CN labels
+        group_by_tile : bool
+            If True, show frequency per tile. If False, show overall frequency.
+        figsize : tuple
+            Figure size (width, height)
+        save_path : str, optional
+            Path to save figure
+        color_palette : str
+            Color palette name for the plot (default: 'Set3' to match individual tile maps)
+        """
+        print(f"\nGenerating neighborhood frequency graph...")
+        
+        frequency_df = self.calculate_neighborhood_frequency(cn_key, group_by_tile)
+        
+        # Get CN colors matching individual tile maps (Set3 palette)
+        n_cns = len(self.combined_adata.obs[cn_key].cat.categories)
+        colors_palette = sns.color_palette(color_palette, n_cns)
+        
+        if group_by_tile:
+            # Stacked bar chart showing frequency per tile
+            fig, ax = plt.subplots(figsize=figsize)
+            
+            # Ensure columns are sorted by CN ID and create color mapping
+            cn_ids = sorted([int(col) for col in frequency_df.columns])
+            color_map = {cn_id: colors_palette[int(cn_id) - 1] for cn_id in cn_ids}
+            
+            # Reorder columns to match sorted order
+            frequency_df_sorted = frequency_df[[str(cn_id) for cn_id in cn_ids]]
+            colors_sorted = [color_map[cn_id] for cn_id in cn_ids]
+            
+            frequency_df_sorted.plot(kind='bar', stacked=True, ax=ax, 
+                                     color=colors_sorted, width=0.8)
+            
+            ax.set_xlabel('Tile', fontsize=12, fontweight='bold')
+            ax.set_ylabel('Frequency (Proportion)', fontsize=12, fontweight='bold')
+            ax.set_title('Cellular Neighborhood Frequency by Tile', 
+                        fontsize=14, fontweight='bold', pad=15)
+            ax.legend(title='Cellular Neighborhood', bbox_to_anchor=(1.05, 1), 
+                     loc='upper left', fontsize=9)
+            ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
+            ax.grid(axis='y', alpha=0.3, linestyle='--')
+            
+            plt.tight_layout()
+        else:
+            # Bar chart showing overall frequency
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
+            
+            # Sort by CN ID to ensure consistent color mapping
+            frequency_df_sorted = frequency_df.sort_values('Cellular_Neighborhood')
+            cn_ids = [int(cn_id) for cn_id in frequency_df_sorted['Cellular_Neighborhood']]
+            colors_for_bars = [colors_palette[int(cn_id) - 1] for cn_id in cn_ids]
+            
+            # Count plot
+            bars1 = ax1.bar(frequency_df_sorted['Cellular_Neighborhood'].astype(str), 
+                           frequency_df_sorted['Count'], 
+                           color=colors_for_bars)
+            ax1.set_xlabel('Cellular Neighborhood', fontsize=12, fontweight='bold')
+            ax1.set_ylabel('Cell Count', fontsize=12, fontweight='bold')
+            ax1.set_title('CN Frequency (Count)', fontsize=13, fontweight='bold')
+            ax1.grid(axis='y', alpha=0.3, linestyle='--')
+            
+            # Add count labels on bars
+            for bar in bars1:
+                height = bar.get_height()
+                ax1.text(bar.get_x() + bar.get_width()/2., height,
+                        f'{int(height):,}',
+                        ha='center', va='bottom', fontsize=9)
+            
+            # Percentage plot
+            bars2 = ax2.bar(frequency_df_sorted['Cellular_Neighborhood'].astype(str), 
+                           frequency_df_sorted['Percentage'],
+                           color=colors_for_bars)
+            ax2.set_xlabel('Cellular Neighborhood', fontsize=12, fontweight='bold')
+            ax2.set_ylabel('Percentage (%)', fontsize=12, fontweight='bold')
+            ax2.set_title('CN Frequency (Percentage)', fontsize=13, fontweight='bold')
+            ax2.grid(axis='y', alpha=0.3, linestyle='--')
+            ax2.set_ylim([0, max(frequency_df_sorted['Percentage']) * 1.15])
+            
+            # Add percentage labels on bars
+            for bar in bars2:
+                height = bar.get_height()
+                ax2.text(bar.get_x() + bar.get_width()/2., height,
+                        f'{height:.1f}%',
+                        ha='center', va='bottom', fontsize=9)
+            
+            # Rotate x-axis labels
+            for ax_sub in [ax1, ax2]:
+                plt.setp(ax_sub.get_xticklabels(), rotation=45, ha='right')
+            
+            plt.suptitle('Cellular Neighborhood Frequency Distribution', 
+                        fontsize=14, fontweight='bold', y=1.02)
+            plt.tight_layout()
+        
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            print(f"  ✓ Saved frequency graph to: {save_path}")
+        else:
+            save_path = self.output_dir / 'unified_analysis' / 'neighborhood_frequency.png'
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            print(f"  ✓ Saved frequency graph to: {save_path}")
+        
+        # Save frequency data to CSV
+        csv_path = self.output_dir / 'unified_analysis' / 'neighborhood_frequency.csv'
+        frequency_df.to_csv(csv_path, index=group_by_tile)
+        print(f"  ✓ Saved frequency data to: {csv_path}")
+        
+        return fig
+
+    def save_processed_data(self, cn_key: str = 'cn_celltype'):
+        """Save processed h5ad files with CN annotations for each tile."""
         print(f"\nSaving processed h5ad files for spatial context analysis...")
 
         for tile_idx, tile_name in enumerate(self.tile_list, 1):
-            print(f"  [{tile_idx}/{len(self.tile_list)}] Saving {tile_name}...")
+            print(self._log_progress(tile_idx, len(self.tile_list), f"Saving {tile_name}"))
             
             # Extract tile data
             tile_mask = self.combined_adata.obs['tile_name'] == tile_name
@@ -624,20 +628,7 @@ class UnifiedCellularNeighborhoodDetector:
         celltype_key: str,
         composition: pd.DataFrame
     ):
-        """
-        Save summary statistics for the unified CN analysis.
-
-        Parameters:
-        -----------
-        k : int
-            Number of nearest neighbors used
-        n_clusters : int
-            Number of CNs detected
-        celltype_key : str
-            Cell type key used
-        composition : DataFrame
-            CN composition matrix
-        """
+        """Save summary statistics for the unified CN analysis."""
         print("\nSaving summary statistics...")
 
         summary = {
@@ -657,17 +648,19 @@ class UnifiedCellularNeighborhoodDetector:
             'cn_composition': composition.to_dict()
         }
 
-        # Convert any numpy types to native Python types
+        # Convert numpy types to native Python types
         def convert_to_native(obj):
-            if isinstance(obj, np.integer):
-                return int(obj)
-            elif isinstance(obj, np.floating):
-                return float(obj)
-            elif isinstance(obj, np.ndarray):
-                return obj.tolist()
-            elif isinstance(obj, dict):
+            converters = {
+                np.integer: int,
+                np.floating: float,
+                np.ndarray: lambda x: x.tolist()
+            }
+            for dtype, converter in converters.items():
+                if isinstance(obj, dtype):
+                    return converter(obj)
+            if isinstance(obj, dict):
                 return {k: convert_to_native(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
+            if isinstance(obj, list):
                 return [convert_to_native(item) for item in obj]
             return obj
 
@@ -688,35 +681,16 @@ class UnifiedCellularNeighborhoodDetector:
         self,
         tile_files: List[Path],
         k: int = 20,
-        n_clusters: int = 7,    # number of CNs to detect
+        n_clusters: int = 7,
         celltype_key: str = 'cell_type',
         random_state: int = 220705,
         coord_offset: bool = True
     ):
-        """
-        Run the complete unified CN detection pipeline.
-
-        Parameters:
-        -----------
-        tile_files : List[Path]
-            List of paths to h5ad tile files
-        k : int, default=20
-            Number of nearest neighbors
-        n_clusters : int, default=7
-            Number of CNs to detect
-        celltype_key : str
-            Key in adata.obs containing cell type labels
-        random_state : int
-            Random seed
-        coord_offset : bool
-            Whether to offset spatial coordinates between tiles
-        """
-        print("=" * 80)
-        print("UNIFIED CELLULAR NEIGHBORHOOD DETECTION PIPELINE")
-        print("=" * 80)
+        """Run the complete unified CN detection pipeline."""
+        banner = "=" * 80
+        print(f"{banner}\nUNIFIED CELLULAR NEIGHBORHOOD DETECTION PIPELINE\n{banner}")
         print(f"Processing {len(tile_files)} tiles with unified CN detection")
-        print(f"Parameters: k={k}, n_clusters={n_clusters}")
-        print("=" * 80)
+        print(f"Parameters: k={k}, n_clusters={n_clusters}\n{banner}")
 
         start_time = time.time()
 
@@ -736,18 +710,17 @@ class UnifiedCellularNeighborhoodDetector:
         composition, composition_zscore = self.compute_unified_cn_composition(celltype_key=celltype_key)
 
         # Step 6: Visualize unified heatmap
-        print("\n" + "=" * 80)
-        print("GENERATING VISUALIZATIONS")
-        print("=" * 80)
+        print(f"\n{banner}\nGENERATING VISUALIZATIONS\n{banner}")
         
         heatmap_path = self.output_dir / 'unified_analysis' / 'unified_cn_composition_heatmap.png'
-        self.visualize_unified_cn_composition(
+        heatmap_fig = self.visualize_unified_cn_composition(
             composition_zscore,
             k=k,
             n_clusters=n_clusters,
             save_path=str(heatmap_path),
             show_values=True
         )
+        plt.close(heatmap_fig)
 
         # Step 7: Visualize individual tile maps
         self.visualize_individual_tile_cns(k=k, n_clusters=n_clusters)
@@ -760,13 +733,11 @@ class UnifiedCellularNeighborhoodDetector:
 
         total_time = time.time() - start_time
 
-        print("\n" + "=" * 80)
-        print("PIPELINE COMPLETE!")
-        print("=" * 80)
+        print(f"\n{banner}\nPIPELINE COMPLETE!\n{banner}")
         print(f"Total processing time: {total_time/60:.1f} minutes")
         print(f"Results saved to: {self.output_dir}/")
         print(f"  - Unified heatmap: {self.output_dir}/unified_analysis/")
-        print(f"  - Individual tile maps: cn_unified_results/individual_tiles/")
+        print(f"  - Individual tile maps: {self.output_dir}/individual_tiles/")
         print(f"  - Processed h5ad files: {self.output_dir}/processed_h5ad/")
         print("\nProcessed h5ad files are ready for spatial context analysis!")
 
@@ -774,19 +745,17 @@ class UnifiedCellularNeighborhoodDetector:
 
 
 def main():
-    """
-    Main function to run unified CN detection.
-    """
+    """Main function to run unified CN detection."""
     # Parse command line arguments
     parser = argparse.ArgumentParser(
         description='Unified Cellular Neighborhood Detection Across Multiple Tiles'
     )
     parser.add_argument(
         '--tiles_dir', '-t',
-        default='/mnt/g/HandE/results/SOW1885_n=201_AT2 40X/JN_TS_023/manual_2mm_17/selected_h5ad/adjacent_tissue',
+        default='/mnt/j/HandE/results/SOW1885_n=201_AT2 40X/JN_TS_023/manual_4mm_5/selected_h5ad',
         # /mnt/c/ProgramData/github_repo/image_analysis_scripts/neighborhood_composition/spatial_contexts/selected_h5ad_tiles/processed_h5ad
         # /mnt/c/ProgramData/github_repo/image_analysis_scripts/neighborhood_composition/spatial_contexts/selected_h5ad_tiles
-        # default='/mnt/g/GDC-TCGA-LUAD/00a0b174-1eab-446a-ba8c-7c6e3acd7f0c/pred/h5ad', # for 122 tiles
+        # default='/mnt/j/GDC-TCGA-LUAD/00a0b174-1eab-446a-ba8c-7c6e3acd7f0c/pred/h5ad', # for 122 tiles
         help='Directory containing h5ad tile files'
     )
     parser.add_argument(
@@ -823,16 +792,15 @@ def main():
 
     args = parser.parse_args()
 
-    print("=" * 80)
-    print("UNIFIED CELLULAR NEIGHBORHOOD DETECTION")
-    print("=" * 80)
+    banner = "=" * 80
+    print(f"{banner}\nUNIFIED CELLULAR NEIGHBORHOOD DETECTION\n{banner}")
     print(f"Tiles directory: {args.tiles_dir}")
     print(f"Output directory: {args.output_dir}")
     print(f"Parameters: k={args.k}, n_clusters={args.n_clusters}")
     print(f"Cell type key: {args.celltype_key}")
     if args.max_tiles:
         print(f"Max tiles: {args.max_tiles} (testing mode)")
-    print("=" * 80)
+    print(banner)
 
     # Initialize detector
     detector = UnifiedCellularNeighborhoodDetector(
