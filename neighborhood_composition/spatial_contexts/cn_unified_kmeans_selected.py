@@ -41,15 +41,24 @@ class GroupCNAnalyzer:
         """
         self.processed_h5ad_dir = Path(processed_h5ad_dir)
         self.categories_json = Path(categories_json)
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        base_output_dir = Path(output_dir)
         
         # Load categorization
         with open(self.categories_json, 'r') as f:
             self.categories = json.load(f)
         
+        # Extract tile size from metadata and create subfolder
+        tile_size_mm = self.categories.get('metadata', {}).get('tile_size_mm2', 2.0)
+        # Convert to string like "2mm" (assuming integer tile sizes)
+        tile_size_folder = f"{int(tile_size_mm)}mm"
+        
+        # Create output directory with tile size subfolder
+        self.output_dir = base_output_dir / tile_size_folder
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
         print(f"✓ Loaded tile categories from: {self.categories_json}")
         print(f"  Groups: {list(self.categories.keys() - {'metadata'})}")
+        print(f"  Output directory: {self.output_dir}")
         
     def load_group_data(
         self,
@@ -304,10 +313,14 @@ class GroupCNAnalyzer:
         color_map = {cn_id: colors_palette[int(cn_id) - 1] for cn_id in cn_ids}
         colors_sorted = [color_map[cn_id] for cn_id in cn_ids]
         
-        # Plot
+        # Plot all tiles
         fig, ax = plt.subplots(figsize=figsize)
+        
+        group_tiles = self.categories[group_name]
+        
+        # Plot all tiles together
         frequency_df_sorted.plot(kind='bar', stacked=True, ax=ax,
-                                color=colors_sorted, width=0.8)
+                                color=colors_sorted, width=0.8, legend=False)
         
         ax.set_xlabel('Tile', fontsize=12, fontweight='bold')
         ax.set_ylabel('Frequency (Proportion)', fontsize=12, fontweight='bold')
@@ -317,11 +330,10 @@ class GroupCNAnalyzer:
                  loc='upper left', fontsize=9)
         ax.grid(axis='y', alpha=0.3, linestyle='--')
         
-        # Highlight group tiles
-        group_tiles = self.categories[group_name]
+        # Highlight group tiles with bold and red color
         x_labels = ax.get_xticklabels()
         
-        for i, label in enumerate(x_labels):
+        for label in x_labels:
             tile_name = label.get_text()
             if tile_name in group_tiles:
                 # Highlight with bold and different color
@@ -453,7 +465,7 @@ def main():
     )
     parser.add_argument(
         '--output_dir',
-        default='cn_unified_results_selected',
+        default='/mnt/c/ProgramData/github_repo/image_analysis_scripts/neighborhood_composition/spatial_contexts/cn_unified_results_selected',
         help='Output directory for group-specific results'
     )
     parser.add_argument(
