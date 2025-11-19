@@ -24,6 +24,7 @@ import squidpy as sq
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
+import matplotlib.patheffects as path_effects
 import seaborn as sns
 import os
 import glob
@@ -359,7 +360,7 @@ class UnifiedCellularNeighborhoodDetector:
         cn_key: str = 'cn_celltype',
         coord_key: str = 'spatial_original',
         point_size: float = 10.0,
-        palette: str = 'Set3',
+        palette: str = 'Set2',
         k: Optional[int] = None,
         n_clusters: Optional[int] = None
     ):
@@ -482,7 +483,7 @@ class UnifiedCellularNeighborhoodDetector:
         group_by_tile: bool = False,
         figsize: Tuple[int, int] = (12, 6),
         save_path: Optional[str] = None,
-        color_palette: str = 'Set3'
+        color_palette: str = 'Set2'
     ):
         """
         Generate a graph showing neighborhood frequency.
@@ -498,13 +499,13 @@ class UnifiedCellularNeighborhoodDetector:
         save_path : str, optional
             Path to save figure
         color_palette : str
-            Color palette name for the plot (default: 'Set3' to match individual tile maps)
+            Color palette name for the plot (default: 'Set2' to match individual tile maps)
         """
         print(f"\nGenerating neighborhood frequency graph...")
         
         frequency_df = self.calculate_neighborhood_frequency(cn_key, group_by_tile)
         
-        # Get CN colors matching individual tile maps (Set3 palette)
+        # Get CN colors matching individual tile maps (Set2 palette)
         n_cns = len(self.combined_adata.obs[cn_key].cat.categories)
         colors_palette = sns.color_palette(color_palette, n_cns)
         
@@ -513,11 +514,18 @@ class UnifiedCellularNeighborhoodDetector:
             fig, ax = plt.subplots(figsize=figsize)
             
             # Ensure columns are sorted by CN ID and create color mapping
+            # pd.crosstab returns columns that match the CN values (could be int, categorical, etc.)
+            # Convert to list and sort as integers
             cn_ids = sorted([int(col) for col in frequency_df.columns])
             color_map = {cn_id: colors_palette[int(cn_id) - 1] for cn_id in cn_ids}
             
-            # Reorder columns to match sorted order
-            frequency_df_sorted = frequency_df[[str(cn_id) for cn_id in cn_ids]]
+            # Reorder columns to match sorted order - use actual column names from DataFrame
+            # Handle both integer and categorical column types
+            column_list = list(frequency_df.columns)
+            # Create mapping to get actual column names (in case they're categorical)
+            col_mapping = {int(col): col for col in column_list}
+            sorted_cols = [col_mapping[cn_id] for cn_id in cn_ids]
+            frequency_df_sorted = frequency_df[sorted_cols]
             colors_sorted = [color_map[cn_id] for cn_id in cn_ids]
             
             frequency_df_sorted.plot(kind='bar', stacked=True, ax=ax, 
@@ -534,53 +542,50 @@ class UnifiedCellularNeighborhoodDetector:
             
             plt.tight_layout()
         else:
-            # Bar chart showing overall frequency
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
+            # SINGLE bar chart showing CN Frequency (Count) only, with percentage annotations in middle of bars
+            # IMPORTANT: Only one bar chart is created - no separate percentage chart
+            plt.close('all')  # Close any existing figures to avoid confusion
+            fig, ax = plt.subplots(1, 1, figsize=figsize)  # Explicitly create single subplot
             
             # Sort by CN ID to ensure consistent color mapping
             frequency_df_sorted = frequency_df.sort_values('Cellular_Neighborhood')
             cn_ids = [int(cn_id) for cn_id in frequency_df_sorted['Cellular_Neighborhood']]
             colors_for_bars = [colors_palette[int(cn_id) - 1] for cn_id in cn_ids]
             
-            # Count plot
-            bars1 = ax1.bar(frequency_df_sorted['Cellular_Neighborhood'].astype(str), 
-                           frequency_df_sorted['Count'], 
-                           color=colors_for_bars)
-            ax1.set_xlabel('Cellular Neighborhood', fontsize=12, fontweight='bold')
-            ax1.set_ylabel('Cell Count', fontsize=12, fontweight='bold')
-            ax1.set_title('CN Frequency (Count)', fontsize=13, fontweight='bold')
-            ax1.grid(axis='y', alpha=0.3, linestyle='--')
+            # Create bars with count as height (y-axis = cell count) - ONLY COUNT, NOT PERCENTAGE
+            bars = ax.bar(frequency_df_sorted['Cellular_Neighborhood'].astype(str), 
+                         frequency_df_sorted['Count'], 
+                         color=colors_for_bars)
             
-            # Add count labels on bars
-            for bar in bars1:
+            ax.set_xlabel('Cellular Neighborhood', fontsize=12, fontweight='bold')
+            ax.set_ylabel('Cell Count', fontsize=12, fontweight='bold')
+            ax.set_title('CN Frequency (Count)', 
+                        fontsize=14, fontweight='bold', pad=15)
+            ax.grid(axis='y', alpha=0.3, linestyle='--')
+            
+            # Add count labels above bars and percentage annotations in the middle of each bar
+            # Note: Percentage is only shown as annotation text INSIDE the count bars, not as a separate chart
+            # Use black text with white outline for high contrast visibility
+            text_outline = [path_effects.withStroke(linewidth=3, foreground='white')]
+            max_count = max(frequency_df_sorted['Count'])
+            for bar, count, pct in zip(bars, 
+                                      frequency_df_sorted['Count'], 
+                                      frequency_df_sorted['Percentage']):
                 height = bar.get_height()
-                ax1.text(bar.get_x() + bar.get_width()/2., height,
-                        f'{int(height):,}',
-                        ha='center', va='bottom', fontsize=9)
-            
-            # Percentage plot
-            bars2 = ax2.bar(frequency_df_sorted['Cellular_Neighborhood'].astype(str), 
-                           frequency_df_sorted['Percentage'],
-                           color=colors_for_bars)
-            ax2.set_xlabel('Cellular Neighborhood', fontsize=12, fontweight='bold')
-            ax2.set_ylabel('Percentage (%)', fontsize=12, fontweight='bold')
-            ax2.set_title('CN Frequency (Percentage)', fontsize=13, fontweight='bold')
-            ax2.grid(axis='y', alpha=0.3, linestyle='--')
-            ax2.set_ylim([0, max(frequency_df_sorted['Percentage']) * 1.15])
-            
-            # Add percentage labels on bars
-            for bar in bars2:
-                height = bar.get_height()
-                ax2.text(bar.get_x() + bar.get_width()/2., height,
-                        f'{height:.1f}%',
-                        ha='center', va='bottom', fontsize=9)
+                # Count label above bar - black text with white outline
+                ax.text(bar.get_x() + bar.get_width()/2., height,
+                       f'{int(count):,}',
+                       ha='center', va='bottom', fontsize=10, fontweight='bold',
+                       color='black', path_effects=text_outline)
+                # Percentage annotation in the middle of bar - black text with white outline
+                ax.text(bar.get_x() + bar.get_width()/2., height/2,
+                       f'{pct:.1f}%',
+                       ha='center', va='center', fontsize=10, 
+                       color='black', fontweight='bold', path_effects=text_outline)
             
             # Rotate x-axis labels
-            for ax_sub in [ax1, ax2]:
-                plt.setp(ax_sub.get_xticklabels(), rotation=45, ha='right')
+            plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
             
-            plt.suptitle('Cellular Neighborhood Frequency Distribution', 
-                        fontsize=14, fontweight='bold', y=1.02)
             plt.tight_layout()
         
         if save_path:
@@ -725,10 +730,31 @@ class UnifiedCellularNeighborhoodDetector:
         # Step 7: Visualize individual tile maps
         self.visualize_individual_tile_cns(k=k, n_clusters=n_clusters)
 
-        # Step 8: Save processed data
+        # Step 8: Visualize neighborhood frequency distributions
+        # Overall frequency (count-based bar chart with percentage annotations)
+        overall_freq_path = self.output_dir / 'unified_analysis' / 'neighborhood_frequency_overall.png'
+        overall_freq_fig = self.visualize_neighborhood_frequency(
+            cn_key='cn_celltype',
+            group_by_tile=False,
+            figsize=(10, 6),
+            save_path=str(overall_freq_path)
+        )
+        plt.close(overall_freq_fig)
+        
+        # Per-tile frequency (stacked bar chart)
+        per_tile_freq_path = self.output_dir / 'unified_analysis' / 'neighborhood_frequency_per_tile.png'
+        per_tile_freq_fig = self.visualize_neighborhood_frequency(
+            cn_key='cn_celltype',
+            group_by_tile=True,
+            figsize=(14, 8),
+            save_path=str(per_tile_freq_path)
+        )
+        plt.close(per_tile_freq_fig)
+
+        # Step 9: Save processed data
         self.save_processed_data()
 
-        # Step 9: Save summary statistics
+        # Step 10: Save summary statistics
         self.save_summary_statistics(k, n_clusters, celltype_key, composition)
 
         total_time = time.time() - start_time
@@ -737,6 +763,9 @@ class UnifiedCellularNeighborhoodDetector:
         print(f"Total processing time: {total_time/60:.1f} minutes")
         print(f"Results saved to: {self.output_dir}/")
         print(f"  - Unified heatmap: {self.output_dir}/unified_analysis/")
+        print(f"  - Frequency visualizations: {self.output_dir}/unified_analysis/")
+        print(f"    * Overall frequency: neighborhood_frequency_overall.png")
+        print(f"    * Per-tile frequency: neighborhood_frequency_per_tile.png")
         print(f"  - Individual tile maps: {self.output_dir}/individual_tiles/")
         print(f"  - Processed h5ad files: {self.output_dir}/processed_h5ad/")
         print("\nProcessed h5ad files are ready for spatial context analysis!")
@@ -831,4 +860,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
