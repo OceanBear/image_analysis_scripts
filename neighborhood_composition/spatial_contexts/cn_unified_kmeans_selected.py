@@ -54,7 +54,24 @@ class GroupCNAnalyzer:
         
         # Create output directory with tile size subfolder
         self.output_dir = base_output_dir / tile_size_folder
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create directory - handle edge cases robustly
+        if self.output_dir.exists():
+            if self.output_dir.is_file():
+                # If it's a file, remove it and create directory
+                self.output_dir.unlink()
+                self.output_dir.mkdir(parents=True, exist_ok=True)
+            # If it's already a directory, nothing to do (exist_ok=True handles this)
+            elif not self.output_dir.is_dir():
+                # If it exists but is neither file nor dir (e.g., broken symlink), try to remove and recreate
+                try:
+                    self.output_dir.rmdir()
+                except:
+                    pass
+                self.output_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            # Path doesn't exist, create it
+            self.output_dir.mkdir(parents=True, exist_ok=True)
         
         print(f"✓ Loaded tile categories from: {self.categories_json}")
         print(f"  Groups: {list(self.categories.keys() - {'metadata'})}")
@@ -131,38 +148,110 @@ class GroupCNAnalyzer:
         composition_zscore = composition.apply(lambda x: (x - x.mean()) / x.std(), axis=0)
         return composition, composition_zscore
     
+    def load_overall_composition(self) -> pd.DataFrame:
+        """Load overall CN composition from unified analysis results."""
+        # Look for the unified composition file in the parent directory of processed_h5ad
+        # e.g., if processed_h5ad is ".../2mm_all_17_clusters=7/processed_h5ad"
+        # look for ".../2mm_all_17_clusters=7/unified_analysis/unified_cn_composition.csv"
+        unified_dir = self.processed_h5ad_dir.parent / 'unified_analysis'
+        overall_comp_file = unified_dir / 'unified_cn_composition.csv'
+        
+        if overall_comp_file.exists():
+            overall_composition = pd.read_csv(overall_comp_file, index_col=0)
+            # Compute Z-scores
+            overall_zscore = overall_composition.apply(lambda x: (x - x.mean()) / x.std(), axis=0)
+            return overall_zscore
+        else:
+            print(f"  Warning: Overall composition file not found at {overall_comp_file}")
+            return None
+    
     def visualize_cn_composition_heatmap(
         self,
         composition_zscore: pd.DataFrame,
         group_name: str,
         n_cells: int,
+        overall_zscore: Optional[pd.DataFrame] = None,
         figsize=(12, 8),
         save_path: Optional[str] = None
     ):
-        """Visualize CN composition heatmap for a group."""
+        """
+        Visualize CN composition heatmap for a group, showing difference from overall.
+        
+        Parameters:
+        -----------
+        composition_zscore : pd.DataFrame
+            Group's composition Z-scores
+        group_name : str
+            Name of the group
+        n_cells : int
+            Number of cells in the group
+        overall_zscore : pd.DataFrame, optional
+            Overall composition Z-scores for comparison
+        """
         fig, ax = plt.subplots(figsize=figsize)
         
-        sns.heatmap(
-            composition_zscore,
-            cmap='coolwarm',
-            center=0,
-            vmin=-2,
-            vmax=2,
-            cbar_kws={'label': 'Z-score'},
-            linewidths=0.5,
-            linecolor='white',
-            ax=ax,
-            annot=True,
-            fmt='.2f',
-            annot_kws={'size': 8}
-        )
+        if overall_zscore is not None:
+            # Compute difference: overall - group
+            # Align indices and columns first
+            common_rows = composition_zscore.index.intersection(overall_zscore.index)
+            common_cols = composition_zscore.columns.intersection(overall_zscore.columns)
+            
+            group_aligned = composition_zscore.loc[common_rows, common_cols]
+            overall_aligned = overall_zscore.loc[common_rows, common_cols]
+            
+            # Difference: overall - group (positive = group has less, negative = group has more)
+            zscore_diff = overall_aligned - group_aligned
+            
+            # Create custom annotations: "diff(group_zscore)"
+            annot_array = np.empty(group_aligned.shape, dtype=object)
+            for i, row_idx in enumerate(group_aligned.index):
+                for j, col_idx in enumerate(group_aligned.columns):
+                    diff_val = zscore_diff.loc[row_idx, col_idx]
+                    group_val = group_aligned.loc[row_idx, col_idx]
+                    annot_array[i, j] = f'{diff_val:.2f}({group_val:.2f})'
+            
+            # Plot difference (color scale based on difference)
+            sns.heatmap(
+                zscore_diff,
+                cmap='RdYlGn_r',  # Red-Yellow-Green reversed (red=positive diff, green=negative diff)
+                center=0,
+                vmin=-3,
+                vmax=3,
+                cbar_kws={'label': 'Z-score Difference (Overall - Group)'},
+                linewidths=0.5,
+                linecolor='white',
+                ax=ax,
+                annot=annot_array,
+                fmt='',
+                annot_kws={'size': 7}
+            )
+            
+            title = (f'Cell Fraction Difference from Overall\n'
+                    f'Group: {group_name} ({n_cells:,} cells)\n'
+                    f'Format: Difference(Group Z-score)')
+        else:
+            # Fallback if overall not available
+            sns.heatmap(
+                composition_zscore,
+                cmap='RdYlGn_r',
+                center=0,
+                vmin=-2,
+                vmax=2,
+                cbar_kws={'label': 'Z-score'},
+                linewidths=0.5,
+                linecolor='white',
+                ax=ax,
+                annot=True,
+                fmt='.2f',
+                annot_kws={'size': 8}
+            )
+            
+            title = (f'Cell Type Composition by Cellular Neighborhood\n'
+                    f'Group: {group_name} ({n_cells:,} cells)\n'
+                    f'Z-score scaled by column')
         
         ax.set_xlabel('Cell Type', fontsize=12, fontweight='bold')
         ax.set_ylabel('Cellular Neighborhood', fontsize=12, fontweight='bold')
-        
-        title = (f'Cell Type Composition by Cellular Neighborhood\n'
-                f'Group: {group_name} ({n_cells:,} cells)\n'
-                f'Z-score scaled by column')
         ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
         
         plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
@@ -322,12 +411,69 @@ class GroupCNAnalyzer:
         frequency_df_sorted.plot(kind='bar', stacked=True, ax=ax,
                                 color=colors_sorted, width=0.8, legend=False)
         
+        # Extract legend colors BEFORE setting transparency
+        # For stacked bars, containers are organized by CN (one container per CN)
+        from matplotlib.patches import Rectangle
+        
+        legend_handles = []
+        legend_labels = []
+        cn_colors = []
+        
+        if ax.containers:
+            # Each container represents one CN type
+            # Store colors before applying transparency
+            for container_idx, container in enumerate(ax.containers):
+                if len(container.patches) > 0:
+                    # Get color from first patch in container (before transparency is set)
+                    first_patch = container.patches[0]
+                    color = first_patch.get_facecolor()
+                    # Normalize to RGB tuple
+                    if isinstance(color, np.ndarray):
+                        color = tuple(color.flatten()[:4])  # Keep RGBA
+                    elif isinstance(color, tuple):
+                        color = color[:4] if len(color) >= 4 else color
+                    cn_colors.append(color)
+                    
+                    cn_id = cn_ids[container_idx] if container_idx < len(cn_ids) else container_idx + 1
+                    legend_labels.append(f'CN {cn_id}')
+        
+        # Set transparency for non-group tiles
+        # In pandas stacked bar plots, patches are organized by CN first, then by tile
+        # Order: [tile0_CN1, tile1_CN1, ..., tileN_CN1, tile0_CN2, tile1_CN2, ..., tileN_CN2, ...]
+        # So to find which tile: tile_idx = patch_index % n_tiles
+        n_tiles = len(frequency_df_sorted.index)
+        tile_names_list = list(frequency_df_sorted.index)
+        
+        for i, patch in enumerate(ax.patches):
+            # Calculate which tile this patch belongs to
+            tile_idx = i % n_tiles
+            if tile_idx < len(tile_names_list):
+                tile_name = tile_names_list[tile_idx]
+                if tile_name not in group_tiles:
+                    # Set transparency for non-group tiles (30% = alpha=0.3)
+                    patch.set_alpha(0.3)
+                else:
+                    # Ensure group tiles are fully opaque
+                    patch.set_alpha(1.0)
+        
         ax.set_xlabel('Tile', fontsize=12, fontweight='bold')
         ax.set_ylabel('Frequency (Proportion)', fontsize=12, fontweight='bold')
         ax.set_title(f'Cellular Neighborhood Frequency by Tile\n(Group: {group_name} highlighted)',
                     fontsize=14, fontweight='bold', pad=15)
-        ax.legend(title='Cellular Neighborhood', bbox_to_anchor=(1.05, 1),
+        
+        # Create legend with custom handles (full opacity, not affected by bar transparency)
+        for idx, (color, label) in enumerate(zip(cn_colors, legend_labels)):
+            handle = Rectangle((0, 0), 1, 1, 
+                             facecolor=color,
+                             edgecolor='black',
+                             linewidth=0.5,
+                             alpha=1.0)  # Always fully opaque for legend
+            legend_handles.append(handle)
+        
+        ax.legend(handles=legend_handles, labels=legend_labels,
+                 title='Cellular Neighborhood', bbox_to_anchor=(1.05, 1),
                  loc='upper left', fontsize=9)
+        
         ax.grid(axis='y', alpha=0.3, linestyle='--')
         
         # Highlight group tiles with bold and red color
@@ -365,6 +511,10 @@ class GroupCNAnalyzer:
         # Load data
         adata = self.load_group_data(group_name, cn_key, celltype_key)
         
+        # Load overall composition for comparison
+        print("\nLoading overall CN composition for comparison...")
+        overall_zscore = self.load_overall_composition()
+        
         # Compute composition
         print("\nComputing CN composition...")
         composition, composition_zscore = self.compute_cn_composition(
@@ -372,17 +522,18 @@ class GroupCNAnalyzer:
         )
         
         # Save composition CSV
-        csv_path = self.output_dir / f'unified_cn_composition_{group_name}.csv'
+        csv_path = self.output_dir / f'cn_cell_fraction_{group_name}.csv'
         composition.to_csv(csv_path)
         print(f"  ✓ Saved composition CSV to: {csv_path}")
         
-        # Visualize heatmap
-        print("\nGenerating CN composition heatmap...")
-        heatmap_path = self.output_dir / f'unified_cn_composition_heatmap_{group_name}.png'
+        # Visualize heatmap with difference from overall
+        print("\nGenerating cell fraction difference heatmap...")
+        heatmap_path = self.output_dir / f'cell_fraction_difference_{group_name}.png'
         self.visualize_cn_composition_heatmap(
             composition_zscore,
             group_name,
             adata.n_obs,
+            overall_zscore=overall_zscore,
             save_path=str(heatmap_path)
         )
         
@@ -440,8 +591,8 @@ class GroupCNAnalyzer:
         print(f"{banner}")
         print(f"\nResults saved to: {self.output_dir}/")
         print(f"\nGenerated files for each group:")
-        print(f"  - unified_cn_composition_heatmap_{{group}}.png")
-        print(f"  - unified_cn_composition_{{group}}.csv")
+        print(f"  - cell_fraction_difference_{{group}}.png (heatmap with difference from overall)")
+        print(f"  - cn_cell_fraction_{{group}}.csv (composition data)")
         print(f"  - neighborhood_frequency_{{group}}.png")
         print(f"  - neighborhood_frequency_per_tile_{{group}}.png (with highlighted tiles)")
 
