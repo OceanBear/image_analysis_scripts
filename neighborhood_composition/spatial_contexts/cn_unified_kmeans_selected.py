@@ -223,7 +223,7 @@ class GroupCNAnalyzer:
                 ax=ax,
                 annot=annot_array,
                 fmt='',
-                annot_kws={'size': 7}
+                annot_kws={'size': 12}
             )
             
             title = (f'Cell Fraction Difference from Overall\n'
@@ -243,7 +243,7 @@ class GroupCNAnalyzer:
                 ax=ax,
                 annot=True,
                 fmt='.2f',
-                annot_kws={'size': 8}
+                annot_kws={'size': 12}
             )
             
             title = (f'Cell Type Composition by Cellular Neighborhood\n'
@@ -328,12 +328,12 @@ class GroupCNAnalyzer:
             # Count above bar
             ax.text(bar.get_x() + bar.get_width()/2., height,
                    f'{int(count):,}',
-                   ha='center', va='bottom', fontsize=10, fontweight='bold',
+                   ha='center', va='bottom', fontsize=14, fontweight='bold',
                    color='black', path_effects=text_outline)
             # Percentage in middle
             ax.text(bar.get_x() + bar.get_width()/2., height/2,
                    f'{pct:.1f}%',
-                   ha='center', va='center', fontsize=10,
+                   ha='center', va='center', fontsize=14,
                    color='black', fontweight='bold', path_effects=text_outline)
         
         plt.setp(ax.get_xticklabels(), rotation=45, ha='right')

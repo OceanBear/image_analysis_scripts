@@ -30,15 +30,24 @@ import os
 import glob
 import argparse
 from pathlib import Path
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, MiniBatchKMeans
 from typing import Optional, Tuple, List, Dict
 import warnings
 import time
 import json
+from scipy.sparse import block_diag, csr_matrix
 
 # Set the working directory to the script's directory
 os.chdir(Path(__file__).parent)
 warnings.filterwarnings('ignore')
+
+# ============================================================================
+# CONFIGURATION: Random State
+# ============================================================================
+# Change this value to use a different random seed for reproducibility
+# Default: 0 (matches notebook behavior)
+DEFAULT_RANDOM_STATE = 0    # was 220705
+# ============================================================================
 
 
 class UnifiedCellularNeighborhoodDetector:
@@ -115,7 +124,9 @@ class UnifiedCellularNeighborhoodDetector:
         celltype_key : str
             Key in adata.obs containing cell type labels
         coord_offset : bool
-            Whether to offset spatial coordinates to avoid overlap between tiles
+            Whether to offset spatial coordinates to avoid overlap between tiles.
+            Note: This is only for visualization purposes. Neighbor detection uses
+            original coordinates per tile to prevent cross-tile neighbors.
 
         Returns:
         --------
@@ -152,18 +163,23 @@ class UnifiedCellularNeighborhoodDetector:
                 if not pd.api.types.is_categorical_dtype(adata.obs[celltype_key]):
                     adata.obs[celltype_key] = pd.Categorical(adata.obs[celltype_key])
                 
-                # Offset spatial coordinates if requested
+                # Offset spatial coordinates if requested (for visualization only)
+                # Neighbor detection uses original coordinates per tile
                 if coord_offset and 'spatial' in adata.obsm:
+                    # Store original coordinates before offset
+                    adata.obsm['spatial_original'] = adata.obsm['spatial'].copy()
+                    
+                    # Apply offset for visualization
                     coords = adata.obsm['spatial'].copy()
                     coords[:, 0] += coord_offset_x
                     coords[:, 1] += coord_offset_y
                     adata.obsm['spatial'] = coords
                     
-                    # Store original coordinates before offset
-                    adata.obsm['spatial_original'] = adata.obsm['spatial'] - np.array([coord_offset_x, coord_offset_y])
-                    
-                    # Update offset for next tile
-                    coord_offset_x = coords[:, 0].max() + 500  # 500 pixel gap
+                    # Update offset for next tile (arrange tiles horizontally)
+                    # Calculate tile dimensions to ensure proper spacing
+                    tile_width = coords[:, 0].max() - coords[:, 0].min()
+                    coord_offset_x = coords[:, 0].max() + max(500, tile_width * 0.1)  # 10% gap or 500px minimum
+                    # Y-axis stays at 0 since we're arranging horizontally
                 
                 adata_list.append(adata)
                 self.tile_list.append(tile_name)
@@ -195,25 +211,93 @@ class UnifiedCellularNeighborhoodDetector:
         coord_key: str = 'spatial',
         key_added: str = 'spatial_connectivities_knn'
     ):
-        """Build k-nearest neighbor graph on the combined dataset."""
-        print(f"\nBuilding unified {k}-NN graph across all tiles...")
+        """
+        Build k-nearest neighbor graph separately for each tile to prevent cross-tile neighbors.
+        
+        This ensures that cells from different tiles (e.g., margin vs center vs adjacent_tissue)
+        cannot be neighbors, even if they are spatially close in the combined coordinate space.
+        """
+        print(f"\nBuilding {k}-NN graph per tile (no cross-tile neighbors)...")
 
-        sq.gr.spatial_neighbors(
-            self.combined_adata,
-            spatial_key=coord_key,
-            coord_type='generic',
-            n_neighs=k,
-            radius=None
-        )
-
-        # Rename if needed (Squidpy uses fixed key names)
-        actual_key = 'spatial_connectivities'
-        if key_added != actual_key and actual_key in self.combined_adata.obsp:
-            self.combined_adata.obsp[key_added] = self.combined_adata.obsp[actual_key]
-
+        # Get unique tiles
+        unique_tiles = self.combined_adata.obs['tile_name'].unique()
+        tile_connectivities = []
+        tile_sizes = []
+        
+        # Build KNN graph for each tile separately
+        for tile_idx, tile_name in enumerate(unique_tiles, 1):
+            print(self._log_progress(tile_idx, len(unique_tiles), f"Building graph for {tile_name}"))
+            
+            # Extract tile data
+            tile_mask = self.combined_adata.obs['tile_name'] == tile_name
+            tile_adata = self.combined_adata[tile_mask].copy()
+            
+            # Prefer original coordinates (before offset) if available, otherwise use coord_key
+            # This ensures we use actual spatial coordinates within each tile
+            tile_coord_key = coord_key
+            if 'spatial_original' in tile_adata.obsm:
+                tile_coord_key = 'spatial_original'
+                # Temporarily set as 'spatial' for squidpy compatibility
+                tile_adata.obsm['spatial'] = tile_adata.obsm['spatial_original']
+            
+            # Get spatial coordinates for this tile
+            coords = self._get_spatial_coords(tile_adata, 'spatial')
+            if coords is None:
+                print(f"    Warning: No spatial coordinates found for {tile_name}, skipping...")
+                # Create empty connectivity matrix for this tile
+                n_cells = tile_adata.n_obs
+                tile_connectivities.append(csr_matrix((n_cells, n_cells)))
+                tile_sizes.append(n_cells)
+                continue
+            
+            # Build KNN graph for this tile only (using original coordinates)
+            sq.gr.spatial_neighbors(
+                tile_adata,
+                spatial_key='spatial',  # Use 'spatial' key (set above from original if available)
+                coord_type='generic',
+                n_neighs=k,
+                radius=None
+            )
+            
+            # Get connectivity matrix
+            if 'spatial_connectivities' in tile_adata.obsp:
+                tile_conn = tile_adata.obsp['spatial_connectivities']
+                tile_connectivities.append(tile_conn)
+                tile_sizes.append(tile_adata.n_obs)
+                avg_neighbors = tile_conn.sum(axis=1).mean()
+                print(f"    ✓ {tile_adata.n_obs:,} cells, avg {avg_neighbors:.2f} neighbors")
+            else:
+                print(f"    Warning: Failed to build graph for {tile_name}")
+                n_cells = tile_adata.n_obs
+                tile_connectivities.append(csr_matrix((n_cells, n_cells)))
+                tile_sizes.append(n_cells)
+        
+        # Combine connectivity matrices into block diagonal matrix
+        # This ensures no cross-tile connections
+        print(f"\n  Combining {len(tile_connectivities)} tile graphs into block diagonal matrix...")
+        combined_connectivity = block_diag(tile_connectivities, format='csr')
+        
+        # Verify the combined matrix has correct shape
+        expected_size = sum(tile_sizes)
+        if combined_connectivity.shape != (expected_size, expected_size):
+            raise ValueError(
+                f"Connectivity matrix shape mismatch: "
+                f"expected ({expected_size}, {expected_size}), "
+                f"got {combined_connectivity.shape}"
+            )
+        
+        # Store in combined adata
+        self.combined_adata.obsp[key_added] = combined_connectivity
+        
+        # Also store as 'spatial_connectivities' for compatibility
+        self.combined_adata.obsp['spatial_connectivities'] = combined_connectivity
+        
         connectivity = self.combined_adata.obsp[key_added]
-        print(f"  ✓ Average neighbors per cell: {connectivity.sum(axis=1).mean():.2f}")
-        print(f"  ✓ Connectivity matrix shape: {connectivity.shape}")
+        avg_neighbors = connectivity.sum(axis=1).mean()
+        print(f"  ✓ Combined connectivity matrix: {connectivity.shape}")
+        print(f"  ✓ Average neighbors per cell: {avg_neighbors:.2f}")
+        print(f"  ✓ No cross-tile neighbors (block diagonal structure)")
+        
         return self
 
     def aggregate_neighbors(
@@ -254,15 +338,19 @@ class UnifiedCellularNeighborhoodDetector:
     def detect_cellular_neighborhoods(
         self,
         n_clusters: int = 7,
-        random_state: int = 220705,
+        random_state: int = None,
         aggregated_key: str = 'aggregated_neighbors',
         output_key: str = 'cn_celltype'
     ):
-        """Cluster cells based on their neighborhood composition using k-means."""
-        print(f"\nDetecting {n_clusters} unified cellular neighborhoods using k-means...")
+        """Cluster cells based on their neighborhood composition using MiniBatchKMeans (matching notebook)."""
+        print(f"\nDetecting {n_clusters} unified cellular neighborhoods using MiniBatchKMeans...")
+        
+        # Use default random_state if not provided
+        if random_state is None:
+            random_state = DEFAULT_RANDOM_STATE
 
         aggregated = self.combined_adata.obsm[aggregated_key]
-        kmeans = KMeans(n_clusters=n_clusters, random_state=random_state, n_init=10)
+        kmeans = MiniBatchKMeans(n_clusters=n_clusters, random_state=random_state)
         cn_labels = kmeans.fit_predict(aggregated)
 
         self.cn_labels = cn_labels + 1  # 1-based indexing
@@ -330,7 +418,7 @@ class UnifiedCellularNeighborhoodDetector:
             ax=ax,
             annot=show_values,
             fmt='.2f' if show_values else '',
-            annot_kws={'size': 8}
+            annot_kws={'size': 12}
         )
 
         ax.set_xlabel('Cell Type', fontsize=12, fontweight='bold')
@@ -575,12 +663,12 @@ class UnifiedCellularNeighborhoodDetector:
                 # Count label above bar - black text with white outline
                 ax.text(bar.get_x() + bar.get_width()/2., height,
                        f'{int(count):,}',
-                       ha='center', va='bottom', fontsize=10, fontweight='bold',
+                       ha='center', va='bottom', fontsize=14, fontweight='bold',
                        color='black', path_effects=text_outline)
                 # Percentage annotation in the middle of bar - black text with white outline
                 ax.text(bar.get_x() + bar.get_width()/2., height/2,
                        f'{pct:.1f}%',
-                       ha='center', va='center', fontsize=10, 
+                       ha='center', va='center', fontsize=14, 
                        color='black', fontweight='bold', path_effects=text_outline)
             
             # Rotate x-axis labels
@@ -631,10 +719,15 @@ class UnifiedCellularNeighborhoodDetector:
         k: int,
         n_clusters: int,
         celltype_key: str,
-        composition: pd.DataFrame
+        composition: pd.DataFrame,
+        random_state: int = None
     ):
         """Save summary statistics for the unified CN analysis."""
         print("\nSaving summary statistics...")
+        
+        # Use default random_state if not provided
+        if random_state is None:
+            random_state = DEFAULT_RANDOM_STATE
 
         summary = {
             'analysis_type': 'Unified Cellular Neighborhoods',
@@ -645,7 +738,7 @@ class UnifiedCellularNeighborhoodDetector:
             'parameters': {
                 'k_neighbors': k,
                 'n_clusters': n_clusters,
-                'random_state': 220705,
+                'random_state': random_state,
                 'celltype_key': celltype_key
             },
             'cn_distribution': self.combined_adata.obs['cn_celltype'].value_counts().to_dict(),
@@ -688,14 +781,18 @@ class UnifiedCellularNeighborhoodDetector:
         k: int = 20,
         n_clusters: int = 7,
         celltype_key: str = 'cell_type',
-        random_state: int = 220705,
+        random_state: int = None,
         coord_offset: bool = True
     ):
         """Run the complete unified CN detection pipeline."""
+        # Use default random_state if not provided
+        if random_state is None:
+            random_state = DEFAULT_RANDOM_STATE
+            
         banner = "=" * 80
         print(f"{banner}\nUNIFIED CELLULAR NEIGHBORHOOD DETECTION PIPELINE\n{banner}")
         print(f"Processing {len(tile_files)} tiles with unified CN detection")
-        print(f"Parameters: k={k}, n_clusters={n_clusters}\n{banner}")
+        print(f"Parameters: k={k}, n_clusters={n_clusters}, random_state={random_state}\n{banner}")
 
         start_time = time.time()
 
@@ -755,7 +852,7 @@ class UnifiedCellularNeighborhoodDetector:
         self.save_processed_data()
 
         # Step 10: Save summary statistics
-        self.save_summary_statistics(k, n_clusters, celltype_key, composition)
+        self.save_summary_statistics(k, n_clusters, celltype_key, composition, random_state)
 
         total_time = time.time() - start_time
 
@@ -781,7 +878,8 @@ def main():
     )
     parser.add_argument(
         '--tiles_dir', '-t',
-        default='/mnt/j/HandE/results/SOW1885_n=201_AT2 40X/JN_TS_023/manual_4mm_5/selected_h5ad',
+        default='/mnt/j/HandE/results/SOW1885_n=201_AT2 40X/JN_TS_023/manual_2mm_17/selected_h5ad',
+        # adjacent_tissue, center, margin
         # /mnt/c/ProgramData/github_repo/image_analysis_scripts/neighborhood_composition/spatial_contexts/selected_h5ad_tiles/processed_h5ad
         # /mnt/c/ProgramData/github_repo/image_analysis_scripts/neighborhood_composition/spatial_contexts/selected_h5ad_tiles
         # default='/mnt/j/GDC-TCGA-LUAD/00a0b174-1eab-446a-ba8c-7c6e3acd7f0c/pred/h5ad', # for 122 tiles
@@ -818,14 +916,21 @@ def main():
         '--no_offset', action='store_true',
         help='Disable spatial coordinate offsetting between tiles'
     )
+    parser.add_argument(
+        '--random_state', '-r', type=int, default=None,
+        help=f'Random seed for reproducibility (default: {DEFAULT_RANDOM_STATE})'
+    )
 
     args = parser.parse_args()
 
+    # Use default random_state if not provided
+    random_state = args.random_state if args.random_state is not None else DEFAULT_RANDOM_STATE
+    
     banner = "=" * 80
     print(f"{banner}\nUNIFIED CELLULAR NEIGHBORHOOD DETECTION\n{banner}")
     print(f"Tiles directory: {args.tiles_dir}")
     print(f"Output directory: {args.output_dir}")
-    print(f"Parameters: k={args.k}, n_clusters={args.n_clusters}")
+    print(f"Parameters: k={args.k}, n_clusters={args.n_clusters}, random_state={random_state}")
     print(f"Cell type key: {args.celltype_key}")
     if args.max_tiles:
         print(f"Max tiles: {args.max_tiles} (testing mode)")
@@ -850,7 +955,7 @@ def main():
         k=args.k,
         n_clusters=args.n_clusters,
         celltype_key=args.celltype_key,
-        random_state=220705,
+        random_state=random_state,
         coord_offset=not args.no_offset
     )
 
