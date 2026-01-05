@@ -878,7 +878,7 @@ def main():
     )
     parser.add_argument(
         '--tiles_dir', '-t',
-        default='/mnt/j/HandE/results/SOW1885_n=201_AT2 40X/JN_TS_023/manual_2mm_17/selected_h5ad',
+        default='/mnt/j/HandE/results/SOW1885_n=201_AT2 40X/Batch_105/pred/h5ad',
         # adjacent_tissue, center, margin
         # /mnt/c/ProgramData/github_repo/image_analysis_scripts/neighborhood_composition/spatial_contexts/selected_h5ad_tiles/processed_h5ad
         # /mnt/c/ProgramData/github_repo/image_analysis_scripts/neighborhood_composition/spatial_contexts/selected_h5ad_tiles
@@ -895,7 +895,7 @@ def main():
         help='Number of nearest neighbors (default: 20)'
     )
     parser.add_argument(
-        '--n_clusters', '-n', type=int, default=7,  # default=7
+        '--n_clusters', '-n', type=int, default=8,  # default=7
         help='Number of cellular neighborhoods (default: 7)'
     )
     parser.add_argument(

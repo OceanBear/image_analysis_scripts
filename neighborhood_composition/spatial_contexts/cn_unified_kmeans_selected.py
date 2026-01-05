@@ -188,6 +188,17 @@ class GroupCNAnalyzer:
         overall_zscore : pd.DataFrame, optional
             Overall composition Z-scores for comparison
         """
+        # Define the correct cell type order
+        cell_type_order = [
+            "Undefined",
+            "Epithelium (PD-L1lo/Ki67lo)",
+            "Epithelium (PD-L1hi/Ki67hi)",
+            "Macrophage",
+            "Lymphocyte",
+            "Vascular",
+            "Fibroblast/Stroma"
+        ]
+        
         fig, ax = plt.subplots(figsize=figsize)
         
         if overall_zscore is not None:
@@ -196,16 +207,26 @@ class GroupCNAnalyzer:
             common_rows = composition_zscore.index.intersection(overall_zscore.index)
             common_cols = composition_zscore.columns.intersection(overall_zscore.columns)
             
-            group_aligned = composition_zscore.loc[common_rows, common_cols]
-            overall_aligned = overall_zscore.loc[common_rows, common_cols]
+            # Reorder columns according to the specified cell type order
+            # Keep only columns that exist in both dataframes and in the order list
+            ordered_cols = [col for col in cell_type_order if col in common_cols]
+            # Add any remaining columns that weren't in the order list (at the end)
+            remaining_cols = [col for col in common_cols if col not in ordered_cols]
+            final_cols = ordered_cols + remaining_cols
+            
+            group_aligned = composition_zscore.loc[common_rows, final_cols]
+            overall_aligned = overall_zscore.loc[common_rows, final_cols]
             
             # Difference: overall - group (positive = group has less, negative = group has more)
             zscore_diff = overall_aligned - group_aligned
             
+            # Ensure column order is exactly as specified
+            zscore_diff = zscore_diff.reindex(columns=final_cols)
+            
             # Create custom annotations: "diff(group_zscore)"
-            annot_array = np.empty(group_aligned.shape, dtype=object)
+            annot_array = np.empty((len(group_aligned.index), len(final_cols)), dtype=object)
             for i, row_idx in enumerate(group_aligned.index):
-                for j, col_idx in enumerate(group_aligned.columns):
+                for j, col_idx in enumerate(final_cols):
                     diff_val = zscore_diff.loc[row_idx, col_idx]
                     group_val = group_aligned.loc[row_idx, col_idx]
                     annot_array[i, j] = f'{diff_val:.2f}({group_val:.2f})'
@@ -231,8 +252,15 @@ class GroupCNAnalyzer:
                     f'Format: Difference(Group Z-score)')
         else:
             # Fallback if overall not available
+            # Reorder columns according to the specified cell type order
+            existing_cols = list(composition_zscore.columns)
+            ordered_cols = [col for col in cell_type_order if col in existing_cols]
+            remaining_cols = [col for col in existing_cols if col not in ordered_cols]
+            final_cols = ordered_cols + remaining_cols
+            composition_zscore_ordered = composition_zscore[final_cols]
+            
             sns.heatmap(
-                composition_zscore,
+                composition_zscore_ordered,
                 cmap='RdYlGn_r',
                 center=0,
                 vmin=-2,
@@ -606,12 +634,12 @@ def main():
     )
     parser.add_argument(
         '--processed_h5ad_dir',
-        default='/mnt/c/ProgramData/github_repo/image_analysis_scripts/neighborhood_composition/spatial_contexts/cn_unified_results/2mm_all_17_clusters=7/processed_h5ad',
+        default='/mnt/c/ProgramData/github_repo/image_analysis_scripts/neighborhood_composition/spatial_contexts/cn_unified_results/2mm_all_105_clusters=5/processed_h5ad',
         help='Directory containing processed h5ad files with CN annotations'
     )
     parser.add_argument(
         '--categories_json',
-        default='/mnt/c/ProgramData/github_repo/image_analysis_scripts/neighborhood_composition/spatial_contexts/cn_unified_results/2mm_all_17_clusters=7/tile_categories.json',
+        default='/mnt/c/ProgramData/github_repo/image_analysis_scripts/neighborhood_composition/spatial_contexts/cn_unified_results/2mm_all_105_clusters=5/tile_categories.json',
         help='Path to tile categories JSON file'
     )
     parser.add_argument(
